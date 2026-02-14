@@ -17,7 +17,11 @@ def main() -> None:
     logging.info("Reachy Bridge API: %s", config.reachy_bridge_url)
 
     state_machine = StateMachine()
-    openclaw = OpenClawClient(config.openclaw_api_url)
+    openclaw = OpenClawClient(
+        config.openclaw_api_url,
+        intent_path=config.openclaw_intent_path,
+        timeout_s=config.openclaw_timeout_s,
+    )
     reachy = ReachyClient(config.reachy_bridge_url)
     voice = VoicePipeline(config.stt_provider, config.tts_provider, config.wake_word)
 

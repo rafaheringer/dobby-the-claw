@@ -2,6 +2,24 @@
 
 This contract defines the message exchange between the Bridge and OpenClaw.
 
+## OpenClaw HTTP API (Bridge -> OpenClaw)
+
+### POST /v1/intent
+Send user text and receive an intent + action proposal.
+
+Request body:
+- session_id: string
+- text: string
+- language: string (optional)
+
+Success response (200):
+- type: openclaw.intent
+- payload: see openclaw.intent
+
+Error response (4xx/5xx):
+- type: openclaw.error
+- payload: code, message
+
 ## Core Envelope
 
 Fields used by all messages:
