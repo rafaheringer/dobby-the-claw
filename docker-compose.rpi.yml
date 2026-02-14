@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  bridge:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
