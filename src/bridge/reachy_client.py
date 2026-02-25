@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 import time
+import tempfile
 
 from reachy_mini.utils import create_head_pose
 
@@ -69,6 +70,20 @@ class ReachyClient:
                 time.sleep(duration_s)
             mini.set_target_antenna_joint_positions(start)
             return {"ok": True, "message": "Antenna gesture complete"}
+
+        if action_type == "camera_snapshot":
+            mini = self.get_sdk_instance()
+            frame = mini.media.get_frame()
+            if frame is None:
+                return {"ok": False, "message": "No frame available"}
+            try:
+                import cv2
+            except ImportError:
+                return {"ok": False, "message": "opencv-python not installed"}
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                path = temp_file.name
+            cv2.imwrite(path, frame)
+            return {"ok": True, "message": "Snapshot saved", "path": path}
 
         return {"ok": False, "message": f"Unsupported action type: {action_type}"}
 

@@ -30,6 +30,7 @@ These instructions must be followed whenever you work in this repository.
 - Favor typed, structured data objects over ad-hoc dicts when reasonable.
 - Do not introduce new dependencies without justification.
 - Add succinct comments only when behavior is non-obvious.
+- All classes and methods must include clear English docstrings/comments.
 - Avoid storing secrets or personal data; follow the memory policy in the specs.
 
 ## Behavior and Safety Policy
