@@ -2,6 +2,18 @@ from dataclasses import dataclass
 import os
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @dataclass(frozen=True)
 class BridgeConfig:
     llm_api_base: str
@@ -12,6 +24,8 @@ class BridgeConfig:
     realtime_vad_prefix_padding_ms: int
     stt_language: str
     reachy_bridge_url: str
+    vision_debug_window: bool
+    vision_debug_log_interval_s: float
 
 
     @staticmethod
@@ -29,4 +43,6 @@ class BridgeConfig:
             ),
             stt_language=os.getenv("STT_LANGUAGE", "pt"),
             reachy_bridge_url=os.getenv("REACHY_BRIDGE_URL", "http://reachy-bridge:8001"),
+            vision_debug_window=_env_flag("VISION_DEBUG_WINDOW", False),
+            vision_debug_log_interval_s=float(os.getenv("VISION_DEBUG_LOG_INTERVAL_S", "1.0")),
         )

@@ -39,6 +39,11 @@ def main() -> None:
     logging.info("Log level: %s", log_level_name)
     logging.info("Reachy Bridge API: %s", config.reachy_bridge_url)
     logging.info("Run mode: %s", args.mode)
+    logging.info(
+        "Vision debug window=%s log_interval=%.1fs",
+        config.vision_debug_window,
+        config.vision_debug_log_interval_s,
+    )
 
     state_machine = StateMachine()
     identity_prompt = _load_identity_prompt()
@@ -50,7 +55,11 @@ def main() -> None:
     if config.reachy_bridge_url.strip().lower().startswith("sdk"):
         try:
             reachy_sdk_instance = reachy.get_sdk_instance()
-            camera_worker = CameraWorker(reachy_sdk_instance)
+            camera_worker = CameraWorker(
+                reachy_sdk_instance,
+                debug_visual_window=config.vision_debug_window,
+                debug_log_interval_s=config.vision_debug_log_interval_s,
+            )
             camera_worker.start()
             motion_manager = MotionManager(reachy_sdk_instance, camera_worker=camera_worker)
             motion_manager.start()
@@ -219,14 +228,22 @@ def _run_realtime_loop(
 
             now = time.monotonic()
             if (now - last_health_log) > 5.0:
+                vision_info = None
+                if camera_worker is not None:
+                    try:
+                        vision_info = camera_worker.get_tracking_debug_snapshot()
+                    except Exception:
+                        vision_info = None
                 logging.debug(
-                    "[%dms] Health ready=%s playback=%s audio_q=%s chunks=%s streamed=%s",
+                    "[%dms] Health ready=%s playback=%s audio_q=%s chunks=%s streamed=%s face=%s eye=%s",
                     _elapsed_ms(),
                     realtime.wait_until_ready(timeout_s=0.0),
                     playback_started,
                     audio_queue.qsize(),
                     audio_chunks_total,
                     responses_streamed,
+                    (vision_info or {}).get("face_detected_recently"),
+                    (vision_info or {}).get("eye_center"),
                 )
                 last_health_log = now
 
