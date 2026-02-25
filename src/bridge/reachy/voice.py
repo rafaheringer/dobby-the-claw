@@ -115,7 +115,11 @@ class VoicePipeline:
             mini = self._get_reachy_instance()
             if mini is None:
                 return
-            if self._speech_animator is not None and hasattr(self._speech_animator, "animate_speech_from_wav"):
+            if (
+                self.tts_format.lower() == "wav"
+                and self._speech_animator is not None
+                and hasattr(self._speech_animator, "animate_speech_from_wav")
+            ):
                 self._speech_animator.animate_speech_from_wav(temp_path)
             mini.media.play_sound(temp_path)
             duration_s = self._get_wav_duration(temp_path)

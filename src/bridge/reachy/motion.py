@@ -22,7 +22,7 @@ from numpy.typing import NDArray
 from reachy_mini.utils import create_head_pose
 from reachy_mini.utils.interpolation import compose_world_offset, linear_pose_interpolation
 
-from bridge.speech_tapper import HOP_MS, SwayRollRT
+from bridge.reachy.speech_tapper import HOP_MS, SwayRollRT
 from bridge.state_machine import State
 
 logger = logging.getLogger(__name__)
@@ -163,10 +163,6 @@ class MotionManager:
         self._pending_speech_offsets: Tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         self._speech_offsets_dirty = False
 
-        self._shared_state_lock = threading.Lock()
-        self._shared_last_activity_time = self.state.last_activity_time
-        self._shared_is_listening = self._is_listening
-
         self._speech_animation_stop = threading.Event()
         self._speech_animation_thread: threading.Thread | None = None
         self._sway_rt = SwayRollRT()
@@ -244,11 +240,16 @@ class MotionManager:
 
         def _run() -> None:
             try:
+                if not self._is_valid_wav_file(wav_path):
+                    logger.debug("Speech animation skipped: file is not a valid WAV: %s", wav_path)
+                    return
+
                 with wave.open(wav_path, "rb") as wf:
                     sr = wf.getframerate()
                     channels = wf.getnchannels()
                     sampwidth = wf.getsampwidth()
                     if sampwidth != 2:
+                        logger.debug("Speech animation skipped: unsupported WAV sample width=%s", sampwidth)
                         return
                     chunk_frames = int(sr * 0.2)
                     while not self._speech_animation_stop.is_set():
@@ -272,11 +273,22 @@ class MotionManager:
                             )
                             self.set_speech_offsets(offsets)
                             time.sleep(HOP_MS / 1000.0)
+            except wave.Error as exc:
+                logger.debug("Speech animation disabled for invalid WAV content: %s", exc)
             finally:
                 self.set_speech_offsets((0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
         self._speech_animation_thread = threading.Thread(target=_run, daemon=True)
         self._speech_animation_thread.start()
+
+    def _is_valid_wav_file(self, path: str) -> bool:
+        """Return True when the file has a RIFF/WAVE header."""
+        try:
+            with open(path, "rb") as handle:
+                header = handle.read(12)
+            return len(header) >= 12 and header[0:4] == b"RIFF" and header[8:12] == b"WAVE"
+        except OSError:
+            return False
 
     def _poll_signals(self, current_time: float) -> None:
         """Apply queued commands and pending speech offsets."""
@@ -323,12 +335,6 @@ class MotionManager:
                     )
                     self._antenna_unfreeze_blend = 0.0
                 self.state.update_activity()
-
-    def _publish_shared_state(self) -> None:
-        """Publish idle-related state snapshot for thread-safe reads."""
-        with self._shared_state_lock:
-            self._shared_last_activity_time = self.state.last_activity_time
-            self._shared_is_listening = self._is_listening
 
     def _manage_move_queue(self, current_time: float) -> None:
         """Advance primary move queue and handle completion."""
@@ -457,11 +463,8 @@ class MotionManager:
 
     def working_loop(self) -> None:
         """Run main movement loop at target frequency."""
-        prev_loop_start = self._now()
         while not self._stop_event.is_set():
             loop_start = self._now()
-            _ = loop_start - prev_loop_start
-            prev_loop_start = loop_start
 
             self._poll_signals(loop_start)
             self._manage_move_queue(loop_start)
@@ -474,7 +477,6 @@ class MotionManager:
             antennas_cmd = self._calculate_blended_antennas(antennas)
             self._issue_control_command(head, antennas_cmd, body_yaw)
 
-            self._publish_shared_state()
             computation_time = self._now() - loop_start
             sleep_time = max(0.0, self.target_period - computation_time)
             if sleep_time > 0:

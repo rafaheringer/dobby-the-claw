@@ -7,13 +7,13 @@ from typing import Any, Dict, List, Optional
 
 from bridge.config import BridgeConfig
 from bridge.llm_client import DirectLLMClient
-from bridge.motion import MotionManager
 from bridge.openclaw_client import OpenClawClient
-from bridge.reachy_client import ReachyClient
+from bridge.reachy.camera_worker import CameraWorker
+from bridge.reachy.client import ReachyClient
+from bridge.reachy.motion import MotionManager
+from bridge.reachy.voice import VoicePipeline
 from bridge.state_machine import StateMachine
 from bridge.state_machine import Event
-from bridge.voice import VoicePipeline
-from bridge.camera_worker import CameraWorker
 
 
 def main() -> None:
