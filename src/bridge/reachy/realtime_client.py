@@ -16,6 +16,14 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
+NOISY_DELTA_EVENTS = {
+    "conversation.item.input_audio_transcription.delta",
+    "response.output_audio_transcript.delta",
+    "response.audio_transcript.delta",
+    "response.output_audio.delta",
+    "response.audio.delta",
+}
+
 
 class OpenAIRealtimeSession:
     """Maintain a background OpenAI Realtime connection and stream audio frames."""
@@ -33,6 +41,8 @@ class OpenAIRealtimeSession:
         on_speech_start: Optional[Callable[[], None]] = None,
         on_user_transcript: Optional[Callable[[str], None]] = None,
         on_assistant_text: Optional[Callable[[str], None]] = None,
+        on_assistant_audio_chunk: Optional[Callable[[NDArray[np.float32]], None]] = None,
+        on_assistant_audio_done: Optional[Callable[[], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.api_key = api_key
@@ -47,6 +57,8 @@ class OpenAIRealtimeSession:
         self.on_speech_start = on_speech_start
         self.on_user_transcript = on_user_transcript
         self.on_assistant_text = on_assistant_text
+        self.on_assistant_audio_chunk = on_assistant_audio_chunk
+        self.on_assistant_audio_done = on_assistant_audio_done
         self.on_error = on_error
 
         self._thread: Optional[threading.Thread] = None
@@ -56,6 +68,20 @@ class OpenAIRealtimeSession:
         self._stop = threading.Event()
         self._last_assistant_text = ""
         self._last_assistant_ts = 0.0
+        self._start_ts = time.monotonic()
+
+    def _elapsed_ms(self) -> int:
+        """Return elapsed time since session object creation in milliseconds."""
+        return int((time.monotonic() - self._start_ts) * 1000)
+
+    def _safe_call(self, label: str, callback: Optional[Callable], *args) -> None:
+        """Run callbacks defensively so one callback failure doesn't kill realtime loop."""
+        if callback is None:
+            return
+        try:
+            callback(*args)
+        except Exception as exc:
+            logger.exception("[%dms] Callback '%s' failed: %s", self._elapsed_ms(), label, exc)
 
     def start(self) -> None:
         """Start realtime connection in a background thread."""
@@ -65,6 +91,7 @@ class OpenAIRealtimeSession:
         self._ready.clear()
         self._thread = threading.Thread(target=self._run_thread, daemon=True)
         self._thread.start()
+        logger.info("[%dms] Realtime thread started", self._elapsed_ms())
 
     def wait_until_ready(self, timeout_s: float = 8.0) -> bool:
         """Wait until realtime session is connected and updated."""
@@ -73,6 +100,7 @@ class OpenAIRealtimeSession:
     def stop(self) -> None:
         """Stop background realtime connection."""
         self._stop.set()
+        logger.info("[%dms] Realtime stop requested", self._elapsed_ms())
         if self._loop is not None and self._connection is not None:
             future = asyncio.run_coroutine_threadsafe(self._connection.close(), self._loop)
             try:
@@ -96,10 +124,14 @@ class OpenAIRealtimeSession:
         pcm16 = (pcm16 * 32767.0).astype(np.int16)
         encoded = base64.b64encode(pcm16.tobytes()).decode("utf-8")
 
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             self._connection.input_audio_buffer.append(audio=encoded),
             self._loop,
         )
+        try:
+            future.add_done_callback(lambda f: f.exception())
+        except Exception:
+            pass
 
     def _run_thread(self) -> None:
         asyncio.run(self._run())
@@ -107,6 +139,14 @@ class OpenAIRealtimeSession:
     async def _run(self) -> None:
         self._loop = asyncio.get_running_loop()
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.api_base)
+        logger.info(
+            "[%dms] Connecting realtime session model=%s language=%s vad_silence=%sms vad_padding=%sms",
+            self._elapsed_ms(),
+            self.model,
+            self.language,
+            self.vad_silence_ms,
+            self.vad_prefix_padding_ms,
+        )
         try:
             async with client.realtime.connect(model=self.model) as connection:
                 self._connection = connection
@@ -133,21 +173,29 @@ class OpenAIRealtimeSession:
                     }
                 )
                 self._ready.set()
+                logger.info("[%dms] Realtime session ready", self._elapsed_ms())
 
                 async for event in connection:
                     if self._stop.is_set():
                         break
                     event_type = getattr(event, "type", "")
+                    if event_type not in NOISY_DELTA_EVENTS:
+                        logger.debug("[%dms] Realtime event: %s", self._elapsed_ms(), event_type)
 
                     if event_type == "input_audio_buffer.speech_started":
-                        if self.on_speech_start is not None:
-                            self.on_speech_start()
+                        logger.debug("[%dms] speech_started", self._elapsed_ms())
+                        self._safe_call("on_speech_start", self.on_speech_start)
+                        continue
+
+                    if event_type == "input_audio_buffer.speech_stopped":
+                        logger.debug("[%dms] speech_stopped", self._elapsed_ms())
                         continue
 
                     if event_type == "conversation.item.input_audio_transcription.completed":
                         transcript = str(getattr(event, "transcript", "")).strip()
-                        if transcript and self.on_user_transcript is not None:
-                            self.on_user_transcript(transcript)
+                        if transcript:
+                            logger.info("[%dms] User transcript: %s", self._elapsed_ms(), transcript)
+                            self._safe_call("on_user_transcript", self.on_user_transcript, transcript)
                         continue
 
                     if event_type in {
@@ -160,24 +208,46 @@ class OpenAIRealtimeSession:
                         self._emit_assistant_text(text)
                         continue
 
+                    if event_type in {"response.audio.delta", "response.output_audio.delta"}:
+                        delta = getattr(event, "delta", None)
+                        if isinstance(delta, str) and self.on_assistant_audio_chunk is not None:
+                            try:
+                                pcm16 = np.frombuffer(base64.b64decode(delta), dtype=np.int16)
+                                if pcm16.size > 0:
+                                    audio = (pcm16.astype(np.float32) / 32767.0).astype(np.float32)
+                                    self._safe_call("on_assistant_audio_chunk", self.on_assistant_audio_chunk, audio)
+                            except Exception as exc:
+                                logger.debug("[%dms] Failed to decode audio delta: %s", self._elapsed_ms(), exc)
+                        continue
+
+                    if event_type in {
+                        "response.audio.done",
+                        "response.output_audio.done",
+                        "response.audio.completed",
+                    }:
+                        logger.debug("[%dms] Assistant audio done", self._elapsed_ms())
+                        self._safe_call("on_assistant_audio_done", self.on_assistant_audio_done)
+                        continue
+
                     if event_type == "response.done":
                         response = getattr(event, "response", None)
                         text = self._extract_response_text(response)
+                        logger.debug("[%dms] response.done text_len=%s", self._elapsed_ms(), len(text))
                         self._emit_assistant_text(text)
                         continue
 
                     if event_type == "error":
                         err = getattr(event, "error", None)
                         message = str(getattr(err, "message", err or "unknown realtime error"))
-                        if self.on_error is not None:
-                            self.on_error(message)
+                        logger.warning("[%dms] Realtime API error: %s", self._elapsed_ms(), message)
+                        self._safe_call("on_error", self.on_error, message)
         except Exception as exc:
-            logger.warning("Realtime session failed: %s", exc)
-            if self.on_error is not None:
-                self.on_error(str(exc))
+            logger.exception("[%dms] Realtime session failed: %s", self._elapsed_ms(), exc)
+            self._safe_call("on_error", self.on_error, str(exc))
         finally:
             self._ready.clear()
             self._connection = None
+            logger.info("[%dms] Realtime session closed", self._elapsed_ms())
 
     def _extract_response_text(self, response: object) -> str:
         """Extract assistant text from response payload as a fallback path."""
@@ -205,10 +275,12 @@ class OpenAIRealtimeSession:
             return
         now = time.monotonic()
         if text == self._last_assistant_text and (now - self._last_assistant_ts) < 2.0:
+            logger.debug("[%dms] Suppressed duplicate assistant text", self._elapsed_ms())
             return
         self._last_assistant_text = text
         self._last_assistant_ts = now
-        self.on_assistant_text(text)
+        logger.info("[%dms] Assistant text: %s", self._elapsed_ms(), text)
+        self._safe_call("on_assistant_text", self.on_assistant_text, text)
 
     def _to_float32_mono(self, sample: NDArray[np.float32]) -> NDArray[np.float32]:
         """Convert incoming sample to mono float32 vector."""
