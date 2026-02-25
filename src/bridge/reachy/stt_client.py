@@ -9,20 +9,44 @@ import requests
 class OpenAISttClient:
     """Client wrapper around OpenAI audio transcription endpoint."""
 
-    def __init__(self, api_base: str, api_key: str, model: str, timeout_s: int = 20) -> None:
+    def __init__(
+        self,
+        api_base: str,
+        api_key: str,
+        model: str,
+        prompt: str,
+        timeout_s: int = 20,
+    ) -> None:
         """Initialize STT client configuration."""
         self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.prompt = prompt
         self.timeout_s = timeout_s
 
     def transcribe(self, wav_bytes: bytes, language: Optional[str] = None) -> str:
-        """Transcribe WAV audio bytes to text using OpenAI API."""
+        """Transcribe WAV audio with the configured STT model."""
+        return self._transcribe_once(
+            wav_bytes=wav_bytes,
+            model=self.model,
+            language=language,
+            prompt=self.prompt,
+        )
+
+    def _transcribe_once(
+        self,
+        wav_bytes: bytes,
+        model: str,
+        language: Optional[str],
+        prompt: str,
+    ) -> str:
+        """Run a single transcription request."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
         }
         data = {
-            "model": self.model,
+            "model": model,
+            "prompt": prompt,
         }
         if language:
             data["language"] = language
@@ -44,3 +68,4 @@ class OpenAISttClient:
         payload = response.json()
         text = str(payload.get("text", "")).strip()
         return text
+

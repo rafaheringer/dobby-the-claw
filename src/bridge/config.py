@@ -11,10 +11,16 @@ class BridgeConfig:
     llm_api_base: str
     llm_model: str
     llm_api_key_env: str
+    llm_language: str
+    realtime_model: str
+    realtime_transcription_model: str
+    realtime_vad_silence_ms: int
+    realtime_vad_prefix_padding_ms: int
     stt_api_base: str
     stt_api_key_env: str
     stt_model: str
     stt_language: str
+    stt_prompt: str
     mic_vad_on_db: float
     mic_vad_off_db: float
     mic_vad_attack_ms: int
@@ -46,18 +52,32 @@ class BridgeConfig:
             openclaw_timeout_s=int(os.getenv("OPENCLAW_TIMEOUT_S", "20")),
             llm_mode=os.getenv("BRIDGE_LLM_MODE", "openclaw"),
             llm_api_base=os.getenv("LLM_API_BASE", "https://api.openai.com/v1"),
-            llm_model=os.getenv("LLM_MODEL", "gpt-5.2"),
+            llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
             llm_api_key_env=os.getenv("LLM_API_KEY_ENV", "OPENAI_API_KEY"),
+            llm_language=os.getenv("LLM_LANGUAGE", "pt-BR"),
+            realtime_model=os.getenv("REALTIME_MODEL", "gpt-realtime"),
+            realtime_transcription_model=os.getenv(
+                "REALTIME_TRANSCRIPTION_MODEL", "gpt-4o-transcribe"
+            ),
+            realtime_vad_silence_ms=int(os.getenv("REALTIME_VAD_SILENCE_MS", "250")),
+            realtime_vad_prefix_padding_ms=int(
+                os.getenv("REALTIME_VAD_PREFIX_PADDING_MS", "200")
+            ),
             stt_api_base=os.getenv("STT_API_BASE")
             or os.getenv("LLM_API_BASE", "https://api.openai.com/v1"),
             stt_api_key_env=os.getenv("STT_API_KEY_ENV")
             or os.getenv("LLM_API_KEY_ENV", "OPENAI_API_KEY"),
             stt_model=os.getenv("STT_MODEL", "gpt-4o-mini-transcribe"),
             stt_language=os.getenv("STT_LANGUAGE", "pt"),
+            stt_prompt=os.getenv(
+                "STT_PROMPT",
+                "Transcribe Brazilian Portuguese audio accurately. "
+                "If uncertain, prefer Portuguese words and punctuation.",
+            ),
             mic_vad_on_db=float(os.getenv("MIC_VAD_ON_DB", "-35")),
             mic_vad_off_db=float(os.getenv("MIC_VAD_OFF_DB", "-45")),
             mic_vad_attack_ms=int(os.getenv("MIC_VAD_ATTACK_MS", "80")),
-            mic_vad_release_ms=int(os.getenv("MIC_VAD_RELEASE_MS", "500")),
+            mic_vad_release_ms=int(os.getenv("MIC_VAD_RELEASE_MS", "250")),
             mic_pre_roll_ms=int(os.getenv("MIC_PRE_ROLL_MS", "250")),
             mic_min_utterance_ms=int(os.getenv("MIC_MIN_UTTERANCE_MS", "300")),
             tts_api_base=os.getenv("TTS_API_BASE")

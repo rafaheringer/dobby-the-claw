@@ -2,6 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Bridge Realtime",
+      "type": "python",
+      "request": "launch",
+      "module": "bridge.main",
+      "args": ["--mode", "realtime"],
+      "cwd": "${workspaceFolder}/src",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
       "name": "Bridge MIC (Direct LLM)",
       "type": "python",
       "request": "launch",

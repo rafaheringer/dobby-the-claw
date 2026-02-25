@@ -95,7 +95,7 @@ class MicrophoneListener:
             if sample is None:
                 empty_reads += 1
                 now = time.monotonic()
-                if now - last_status_log > 5.0:
+                if now - last_status_log > 5.0 and empty_reads >= 100:
                     logger.warning("No microphone sample received yet (reads without data: %s)", empty_reads)
                     last_status_log = now
                 time.sleep(0.01)

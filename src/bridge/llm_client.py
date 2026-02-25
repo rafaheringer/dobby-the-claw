@@ -5,24 +5,19 @@ from typing import Any, Dict, List, Optional
 import requests
 
 
-SYSTEM_PROMPT = (
-    "You are Reachy, a helpful physical robot. "
-    "Keep replies concise. Use light sarcasm for normal responses, "
-    "minimal sarcasm for safety-critical topics, and be clear in errors."
-)
-
-
 class DirectLLMClient:
     def __init__(
         self,
         api_base: str,
         api_key: str,
         model: str,
+        system_prompt: str,
         timeout_s: int = 20,
     ) -> None:
         self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.system_prompt = system_prompt
         self.timeout_s = timeout_s
 
     def generate_reply(
@@ -44,7 +39,7 @@ class DirectLLMClient:
             "input": [
                 {
                     "role": "system",
-                    "content": [{"type": "input_text", "text": SYSTEM_PROMPT}],
+                    "content": [{"type": "input_text", "text": self.system_prompt}],
                 },
                 {
                     "role": "user",
