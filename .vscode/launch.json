@@ -11,17 +11,6 @@
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
       "justMyCode": true
-    },
-    {
-      "name": "Bridge MIC (Direct LLM)",
-      "type": "python",
-      "request": "launch",
-      "module": "bridge.main",
-      "args": ["--mode", "mic", "--llm-mode", "direct"],
-      "cwd": "${workspaceFolder}/src",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal",
-      "justMyCode": true
     }
   ]
 }
