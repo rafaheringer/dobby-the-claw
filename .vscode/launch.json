@@ -2,11 +2,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Bridge CLI (Direct LLM)",
+      "name": "Bridge MIC (Direct LLM)",
       "type": "python",
       "request": "launch",
       "module": "bridge.main",
-      "args": ["--mode", "cli", "--llm-mode", "direct"],
+      "args": ["--mode", "mic", "--llm-mode", "direct"],
       "cwd": "${workspaceFolder}/src",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",

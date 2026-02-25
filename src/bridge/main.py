@@ -1,4 +1,5 @@
 import argparse
+from queue import Empty, Queue
 import logging
 import os
 import time
@@ -10,7 +11,9 @@ from bridge.llm_client import DirectLLMClient
 from bridge.openclaw_client import OpenClawClient
 from bridge.reachy.camera_worker import CameraWorker
 from bridge.reachy.client import ReachyClient
+from bridge.reachy.microphone import MicrophoneListener
 from bridge.reachy.motion import MotionManager
+from bridge.reachy.stt_client import OpenAISttClient
 from bridge.reachy.voice import VoicePipeline
 from bridge.state_machine import StateMachine
 from bridge.state_machine import Event
@@ -20,8 +23,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Dobby bridge")
     parser.add_argument(
         "--mode",
-        choices=["idle", "cli"],
-        default=os.getenv("BRIDGE_MODE", "idle"),
+        choices=["idle", "cli", "mic"],
+        default=os.getenv("BRIDGE_MODE", "mic"),
     )
     parser.add_argument(
         "--llm-mode",
@@ -36,6 +39,7 @@ def main() -> None:
     logging.info("Bridge starting")
     logging.info("OpenClaw API: %s", config.openclaw_api_url)
     logging.info("Reachy Bridge API: %s", config.reachy_bridge_url)
+    logging.info("Run mode: %s", args.mode)
 
     state_machine = StateMachine()
     llm_mode = args.llm_mode or config.llm_mode
@@ -90,7 +94,11 @@ def main() -> None:
     )
 
     if args.mode == "cli":
-        _run_cli_loop(
+        logging.info("Interactive CLI input is disabled. Switching to microphone mode.")
+        args.mode = "mic"
+
+    if args.mode == "mic":
+        _run_mic_loop(
             state_machine,
             openclaw,
             direct_llm,
@@ -98,6 +106,8 @@ def main() -> None:
             voice,
             motion_manager,
             camera_worker,
+            config,
+            reachy_sdk_instance,
         )
         return
 
@@ -107,7 +117,7 @@ def main() -> None:
         time.sleep(1)
 
 
-def _run_cli_loop(
+def _run_mic_loop(
     state_machine: StateMachine,
     openclaw: Optional[OpenClawClient],
     direct_llm: Optional[DirectLLMClient],
@@ -115,23 +125,79 @@ def _run_cli_loop(
     voice: VoicePipeline,
     motion_manager: Optional[MotionManager],
     camera_worker: Optional[CameraWorker],
+    config: BridgeConfig,
+    reachy_sdk_instance,
 ) -> None:
+    """Run continuous microphone interaction loop without wake word."""
+    if reachy_sdk_instance is None:
+        raise RuntimeError("Microphone mode requires REACHY_BRIDGE_URL=sdk")
+
+    stt_api_key = os.getenv(config.stt_api_key_env, "").strip()
+    if not stt_api_key:
+        raise RuntimeError(f"Missing STT API key in env var {config.stt_api_key_env}")
+
+    stt = OpenAISttClient(
+        api_base=config.stt_api_base,
+        api_key=stt_api_key,
+        model=config.stt_model,
+        timeout_s=config.openclaw_timeout_s,
+    )
+    logging.info("STT model: %s", config.stt_model)
+    logging.info(
+        "MIC VAD config on/off=%.1f/%.1f attack/release=%sms/%sms pre-roll=%sms min-utt=%sms",
+        config.mic_vad_on_db,
+        config.mic_vad_off_db,
+        config.mic_vad_attack_ms,
+        config.mic_vad_release_ms,
+        config.mic_pre_roll_ms,
+        config.mic_min_utterance_ms,
+    )
+
     session_id = str(uuid.uuid4())
-    logging.info("CLI mode. Type /quit to exit.")
+    utterance_queue: "Queue[bytes]" = Queue()
+
+    def _on_speech_start() -> None:
+        if voice.is_speaking():
+            voice.interrupt()
+
+    def _on_utterance(wav_bytes: bytes) -> None:
+        utterance_queue.put(wav_bytes)
+
+    microphone = MicrophoneListener(
+        reachy_mini=reachy_sdk_instance,
+        on_speech_start=_on_speech_start,
+        on_utterance=_on_utterance,
+        vad_on_db=config.mic_vad_on_db,
+        vad_off_db=config.mic_vad_off_db,
+        vad_attack_ms=config.mic_vad_attack_ms,
+        vad_release_ms=config.mic_vad_release_ms,
+        pre_roll_ms=config.mic_pre_roll_ms,
+        min_utterance_ms=config.mic_min_utterance_ms,
+    )
+
+    logging.info("MIC mode active (always listening, no wake word). Press Ctrl+C to exit.")
     if motion_manager is not None:
         motion_manager.set_state(state_machine.state)
 
+    microphone.start()
     try:
         while True:
             try:
-                user_text = input("You> ").strip()
-            except EOFError:
-                break
+                wav_bytes = utterance_queue.get(timeout=0.2)
+            except Empty:
+                continue
 
+            try:
+                user_text = stt.transcribe(wav_bytes, language=config.stt_language)
+            except Exception as exc:
+                logging.warning("STT failed: %s", exc)
+                continue
+
+            user_text = user_text.strip()
             if not user_text:
                 continue
-            if user_text.lower() in {"/quit", "/exit"}:
-                break
+
+            logging.info("User said: %s", user_text)
 
             _apply_event(state_machine, Event.WAKE_WORD, motion_manager)
             _ = reachy.execute_action({"type": "gesture.listening"})
@@ -168,49 +234,19 @@ def _run_cli_loop(
 
             msg_type = response.get("type")
             payload = response.get("payload", {})
-            if msg_type == "openclaw.error":
-                _apply_event(state_machine, Event.MODEL_ERROR, motion_manager)
-                voice.speak(payload.get("message", "Erro desconhecido no OpenClaw"))
-                _apply_event(state_machine, Event.RESPONSE_READY, motion_manager)
-                continue
-
             if msg_type != "openclaw.intent":
                 _apply_event(state_machine, Event.MODEL_ERROR, motion_manager)
-                voice.speak("Resposta inesperada do OpenClaw")
+                voice.speak(payload.get("message", "Resposta inesperada do OpenClaw"))
                 _apply_event(state_machine, Event.RESPONSE_READY, motion_manager)
                 continue
 
-            action_class = str(payload.get("action_class", "A")).upper()
             summary = payload.get("summary", "")
             actions = payload.get("actions", [])
-
             _apply_event(state_machine, Event.RESPONSE_READY, motion_manager)
-
-            if action_class == "D":
-                voice.speak("Acao bloqueada pela politica de seguranca.")
-                _apply_event(state_machine, Event.RESPONSE_READY, motion_manager)
-                continue
-
-            if action_class in {"B", "C"}:
-                _apply_event(state_machine, Event.NEED_CONFIRMATION, motion_manager)
-                voice.speak(summary or "Posso continuar?")
-                confirm_text = input("Confirmar? (sim/nao)> ").strip().lower()
-                if action_class == "C":
-                    accepted = "confirmo" in confirm_text or "i confirm" in confirm_text
-                else:
-                    accepted = confirm_text in {"sim", "yes"}
-                _apply_event(
-                    state_machine,
-                    Event.CONFIRMED if accepted else Event.REJECTED,
-                    motion_manager,
-                )
-                if not accepted:
-                    voice.speak("Ok, cancelado.")
-                    continue
-
             _execute_actions(actions, reachy, voice, summary)
             _apply_event(state_machine, Event.RESPONSE_READY, motion_manager)
     finally:
+        microphone.stop()
         if motion_manager is not None:
             motion_manager.stop()
         if camera_worker is not None:

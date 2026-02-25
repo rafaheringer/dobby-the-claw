@@ -1,6 +1,7 @@
 import logging
 import os
 import tempfile
+import threading
 import time
 import wave
 
@@ -39,15 +40,23 @@ class VoicePipeline:
         self._reachy_mini = ReachyMini
         self._reachy_instance = reachy_instance
         self._speech_animator = speech_animator
+        self._interrupt_event = threading.Event()
+        self._is_speaking = False
+        self._speak_lock = threading.Lock()
 
     def start_listening(self) -> None:
         # TODO: Integrate wake word + STT.
         raise NotImplementedError("Voice pipeline not implemented yet")
 
     def speak(self, text: str) -> None:
+        """Synthesize and play speech output, with interrupt support."""
         text = text.strip()
         if not text:
             return
+
+        with self._speak_lock:
+            self._is_speaking = True
+            self._interrupt_event.clear()
 
         if self._speech_animator is not None:
             self._speech_animator.start_speaking()
@@ -56,6 +65,8 @@ class VoicePipeline:
             print(f"Reachy: {text}")
             if self._speech_animator is not None:
                 self._speech_animator.stop_speaking()
+            with self._speak_lock:
+                self._is_speaking = False
             return
 
         api_key = os.getenv(self.tts_api_key_env, "").strip()
@@ -63,6 +74,8 @@ class VoicePipeline:
             print(f"Reachy: {text}")
             if self._speech_animator is not None:
                 self._speech_animator.stop_speaking()
+            with self._speak_lock:
+                self._is_speaking = False
             return
 
         try:
@@ -81,6 +94,23 @@ class VoicePipeline:
         finally:
             if self._speech_animator is not None:
                 self._speech_animator.stop_speaking()
+            with self._speak_lock:
+                self._is_speaking = False
+
+    def interrupt(self) -> None:
+        """Interrupt current speech playback and stop robot audio stream."""
+        self._interrupt_event.set()
+        mini = self._get_reachy_instance()
+        if mini is not None:
+            try:
+                mini.media.stop_playing()
+            except Exception:
+                pass
+
+    def is_speaking(self) -> bool:
+        """Return True while the voice pipeline is speaking."""
+        with self._speak_lock:
+            return self._is_speaking
 
     def _synthesize_openai(self, text: str, api_key: str) -> bytes:
         headers = {
@@ -124,7 +154,9 @@ class VoicePipeline:
             mini.media.play_sound(temp_path)
             duration_s = self._get_wav_duration(temp_path)
             if duration_s is not None:
-                time.sleep(duration_s + 0.6)
+                started_at = time.monotonic()
+                while not self._interrupt_event.is_set() and (time.monotonic() - started_at) < (duration_s + 0.6):
+                    time.sleep(0.03)
                 mini.media.stop_playing()
         finally:
             try:

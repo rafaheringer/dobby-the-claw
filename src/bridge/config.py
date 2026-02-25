@@ -11,6 +11,16 @@ class BridgeConfig:
     llm_api_base: str
     llm_model: str
     llm_api_key_env: str
+    stt_api_base: str
+    stt_api_key_env: str
+    stt_model: str
+    stt_language: str
+    mic_vad_on_db: float
+    mic_vad_off_db: float
+    mic_vad_attack_ms: int
+    mic_vad_release_ms: int
+    mic_pre_roll_ms: int
+    mic_min_utterance_ms: int
     tts_api_base: str
     tts_api_key_env: str
     tts_model: str
@@ -38,6 +48,18 @@ class BridgeConfig:
             llm_api_base=os.getenv("LLM_API_BASE", "https://api.openai.com/v1"),
             llm_model=os.getenv("LLM_MODEL", "gpt-5.2"),
             llm_api_key_env=os.getenv("LLM_API_KEY_ENV", "OPENAI_API_KEY"),
+            stt_api_base=os.getenv("STT_API_BASE")
+            or os.getenv("LLM_API_BASE", "https://api.openai.com/v1"),
+            stt_api_key_env=os.getenv("STT_API_KEY_ENV")
+            or os.getenv("LLM_API_KEY_ENV", "OPENAI_API_KEY"),
+            stt_model=os.getenv("STT_MODEL", "gpt-4o-mini-transcribe"),
+            stt_language=os.getenv("STT_LANGUAGE", "pt"),
+            mic_vad_on_db=float(os.getenv("MIC_VAD_ON_DB", "-35")),
+            mic_vad_off_db=float(os.getenv("MIC_VAD_OFF_DB", "-45")),
+            mic_vad_attack_ms=int(os.getenv("MIC_VAD_ATTACK_MS", "80")),
+            mic_vad_release_ms=int(os.getenv("MIC_VAD_RELEASE_MS", "500")),
+            mic_pre_roll_ms=int(os.getenv("MIC_PRE_ROLL_MS", "250")),
+            mic_min_utterance_ms=int(os.getenv("MIC_MIN_UTTERANCE_MS", "300")),
             tts_api_base=os.getenv("TTS_API_BASE")
             or os.getenv("LLM_API_BASE", "https://api.openai.com/v1"),
             tts_api_key_env=os.getenv("TTS_API_KEY_ENV")
