@@ -169,6 +169,12 @@ class OpenAIRealtimeSession:
                                     "prefix_padding_ms": self.vad_prefix_padding_ms,
                                 },
                             },
+                            "output": {
+                                "format": {
+                                    "type": "audio/pcm",
+                                },
+                                "voice": "ballad",
+                            }
                         },
                     }
                 )
