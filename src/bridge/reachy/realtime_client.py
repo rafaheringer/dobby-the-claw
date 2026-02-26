@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import threading
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 import numpy as np
 from numpy.typing import NDArray
 from openai import AsyncOpenAI
+
+from bridge.tools.contracts import ToolExecutionResult
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,8 @@ class OpenAIRealtimeSession:
         on_assistant_audio_chunk: Optional[Callable[[NDArray[np.float32]], None]] = None,
         on_assistant_audio_done: Optional[Callable[[], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        tool_specs: Optional[List[Dict[str, Any]]] = None,
+        on_tool_call: Optional[Callable[[str, Dict[str, Any]], ToolExecutionResult]] = None,
     ) -> None:
         self.api_key = api_key
         self.api_base = api_base.rstrip("/")
@@ -60,6 +65,8 @@ class OpenAIRealtimeSession:
         self.on_assistant_audio_chunk = on_assistant_audio_chunk
         self.on_assistant_audio_done = on_assistant_audio_done
         self.on_error = on_error
+        self.tool_specs = tool_specs or []
+        self.on_tool_call = on_tool_call
 
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -150,34 +157,37 @@ class OpenAIRealtimeSession:
         try:
             async with client.realtime.connect(model=self.model) as connection:
                 self._connection = connection
-                await connection.session.update(
-                    session={
-                        "type": "realtime",
-                        "instructions": self.instructions,
-                        "audio": {
-                            "input": {
-                                "format": {"type": "audio/pcm", "rate": 24000},
-                                "transcription": {
-                                    "model": self.transcription_model,
-                                    "language": self.language,
-                                },
-                                "turn_detection": {
-                                    "type": "server_vad",
-                                    "interrupt_response": True,
-                                    "create_response": True,
-                                    "silence_duration_ms": self.vad_silence_ms,
-                                    "prefix_padding_ms": self.vad_prefix_padding_ms,
-                                },
+                session_payload: Dict[str, Any] = {
+                    "type": "realtime",
+                    "instructions": self.instructions,
+                    "audio": {
+                        "input": {
+                            "format": {"type": "audio/pcm", "rate": 24000},
+                            "transcription": {
+                                "model": self.transcription_model,
+                                "language": self.language,
                             },
-                            "output": {
-                                "format": {
-                                    "type": "audio/pcm",
-                                },
-                                "voice": "ballad",
-                            }
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "interrupt_response": True,
+                                "create_response": True,
+                                "silence_duration_ms": self.vad_silence_ms,
+                                "prefix_padding_ms": self.vad_prefix_padding_ms,
+                            },
                         },
-                    }
-                )
+                        "output": {
+                            "format": {
+                                "type": "audio/pcm",
+                            },
+                            "voice": "ballad",
+                        },
+                    },
+                }
+                if self.tool_specs:
+                    session_payload["tools"] = self.tool_specs
+                    session_payload["tool_choice"] = "auto"
+
+                await connection.session.update(session=cast(Any, session_payload))
                 self._ready.set()
                 logger.info("[%dms] Realtime session ready", self._elapsed_ms())
 
@@ -242,6 +252,10 @@ class OpenAIRealtimeSession:
                         self._emit_assistant_text(text)
                         continue
 
+                    if event_type == "response.function_call_arguments.done":
+                        await self._handle_tool_call_event(event)
+                        continue
+
                     if event_type == "error":
                         err = getattr(event, "error", None)
                         message = str(getattr(err, "message", err or "unknown realtime error"))
@@ -254,6 +268,67 @@ class OpenAIRealtimeSession:
             self._ready.clear()
             self._connection = None
             logger.info("[%dms] Realtime session closed", self._elapsed_ms())
+
+    async def _handle_tool_call_event(self, event: Any) -> None:
+        """Execute a realtime function call and feed results back to the model."""
+        tool_name = getattr(event, "name", None)
+        arguments_raw = getattr(event, "arguments", None)
+        call_id = getattr(event, "call_id", None)
+
+        if not isinstance(tool_name, str) or not isinstance(call_id, str):
+            logger.warning("[%dms] Invalid tool call event payload", self._elapsed_ms())
+            return
+
+        parsed_args: Dict[str, Any] = {}
+        if isinstance(arguments_raw, str) and arguments_raw.strip():
+            try:
+                obj = json.loads(arguments_raw)
+                if isinstance(obj, dict):
+                    parsed_args = obj
+            except json.JSONDecodeError:
+                parsed_args = {}
+
+        logger.info("[%dms] Tool call: %s args=%s", self._elapsed_ms(), tool_name, parsed_args)
+
+        if self.on_tool_call is None:
+            result = ToolExecutionResult(output={"ok": False, "message": "Tooling not configured"})
+        else:
+            try:
+                result = self.on_tool_call(tool_name, parsed_args)
+            except Exception as exc:
+                logger.exception("[%dms] Tool execution failed: %s", self._elapsed_ms(), exc)
+                result = ToolExecutionResult(output={"ok": False, "message": str(exc)})
+
+        if self._connection is None:
+            return
+
+        await self._connection.conversation.item.create(
+            item={
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": json.dumps(result.output),
+            }
+        )
+
+        if isinstance(result.image_base64, str) and result.image_base64:
+            await self._connection.conversation.item.create(
+                item={
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:image/jpeg;base64,{result.image_base64}",
+                        }
+                    ],
+                }
+            )
+
+        await self._connection.response.create(
+            response={
+                "instructions": "Use tool results (and image when provided) to answer the user naturally.",
+            }
+        )
 
     def _extract_response_text(self, response: object) -> str:
         """Extract assistant text from response payload as a fallback path."""

@@ -15,6 +15,7 @@ from bridge.reachy.motion import MotionManager
 from bridge.reachy.realtime_client import OpenAIRealtimeSession
 from bridge.state_machine import StateMachine
 from bridge.state_machine import Event
+from bridge.tools import CameraSnapshotTool, ToolRegistry
 
 
 def main() -> None:
@@ -126,6 +127,11 @@ def _run_realtime_loop(
     output_sample_rate = int(reachy_sdk_instance.media.get_output_audio_samplerate())
     realtime_output_rate = 24000
 
+    tool_registry = ToolRegistry()
+    if config.camera_tool_enabled and camera_worker is not None:
+        tool_registry.register(CameraSnapshotTool(camera_worker))
+    tool_specs = tool_registry.openai_specs()
+
     def _elapsed_ms() -> int:
         return int((time.monotonic() - loop_start) * 1000)
 
@@ -174,15 +180,18 @@ def _run_realtime_loop(
         on_assistant_audio_chunk=_on_assistant_audio_chunk,
         on_assistant_audio_done=_on_assistant_audio_done,
         on_error=_on_error,
+        tool_specs=tool_specs,
+        on_tool_call=tool_registry.execute,
     )
 
     logging.info(
-        "Realtime mode active model=%s transcribe=%s silence=%sms padding=%sms out_sr=%s",
+        "Realtime mode active model=%s transcribe=%s silence=%sms padding=%sms out_sr=%s tools=%s",
         config.realtime_model,
         config.realtime_transcription_model,
         config.realtime_vad_silence_ms,
         config.realtime_vad_prefix_padding_ms,
         output_sample_rate,
+        tool_registry.names(),
     )
 
     realtime.start()
