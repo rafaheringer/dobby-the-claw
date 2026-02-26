@@ -4,35 +4,31 @@ Bridge project for Reachy Mini + OpenClaw.
 
 ## Overview
 
-- OpenClaw is the cognitive brain (API local).
+- Runtime today: OpenAI Realtime API is the active conversation brain (LLM + streaming audio).
 - Reachy Mini is the physical body and voice.
-- This bridge enforces the behavior spec and action safety policy.
+- OpenClaw integration is planned, but not implemented yet.
 
 See the behavior spec in [docs/behavior-spec-v1.md](docs/behavior-spec-v1.md).
 
 ## Architecture
 
-The bridge is the coordination layer between OpenClaw (cognition) and Reachy Mini (body/voice).
-It owns the state machine, safety policy, and IO orchestration.
+The bridge is the coordination layer between OpenAI Realtime (conversation) and Reachy Mini (body/voice).
+It owns state transitions, low-latency IO orchestration, and tool calls.
 
 ```mermaid
 flowchart LR
     user((User)) -->|Voice| mic[Audio In]
     mic -->|Wake word| voice[Voice IO]
-    voice -->|Audio -> STT| stt[OpenAI STT]
-    stt -->|User text| policy[Policy + State Machine]
-    policy -->|HTTP /v1/intent| openclaw[OpenClaw API]
-    openclaw -->|Intent + Action Proposal| policy
-    policy -->|Action Calls| reachy[Reachy Bridge API]
+    voice -->|Audio stream| rt[OpenAI Realtime API]
+    rt -->|Transcript + Assistant response| policy[Bridge Runtime + State Machine]
+    policy -->|Tool calls / Actions| reachy[Reachy Bridge API]
     reachy -->|Motion/Gestures| reachy_hw[Reachy Mini]
-    policy -->|TTS request| tts[OpenAI TTS]
-    tts -->|Audio Out| speaker[Reachy Speaker]
+    rt -->|Audio response stream| speaker[Reachy Speaker]
     speaker -->|Speech| user
 
     subgraph Local Network
         voice
         policy
-        openclaw
         reachy
     end
 ```
@@ -40,9 +36,15 @@ flowchart LR
 Key responsibilities:
 
 - State machine transitions and timeouts (IDLE/LISTENING/THINKING/EXECUTING/CONFIRMING/ERROR).
-- Action class policy enforcement (A/B/C/D) before any execution.
-- Voice pipeline (wake word, STT, TTS) and interrupt handling.
+- Voice pipeline with OpenAI Realtime (input transcription + output audio) and interrupt handling.
 - Reachy motion/gesture orchestration via reachy-bridge API.
+- Tool execution routing (for example, camera snapshot tool).
+
+## Current Status
+
+- ✅ Implemented: Realtime voice loop with OpenAI Realtime API.
+- ✅ Implemented: Reachy SDK/bridge actions and gesture orchestration.
+- 🚧 Planned: OpenClaw `/v1/intent` integration.
 
 ## Quick Start (Docker)
 

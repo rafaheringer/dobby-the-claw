@@ -1,3 +1,13 @@
+"""Entry point and runtime loop for the Dobby bridge process.
+
+This module wires together:
+- runtime configuration and logging,
+- Reachy SDK connectivity,
+- camera and motion workers,
+- the realtime OpenAI audio session,
+- and state-machine driven robot behavior updates.
+"""
+
 import argparse
 import logging
 import os
@@ -19,6 +29,12 @@ from bridge.tools import CameraSnapshotTool, ToolRegistry
 
 
 def main() -> None:
+    """Start the bridge process in either idle or realtime mode.
+
+    The function initializes logging, loads configuration and identity prompts,
+    sets up Reachy integrations (camera/motion when available), and dispatches
+    execution to the selected runtime mode.
+    """
     parser = argparse.ArgumentParser(description="Dobby bridge")
     parser.add_argument(
         "--mode",
@@ -92,6 +108,10 @@ def _apply_event(
     event: Event,
     motion_manager: Optional[MotionManager],
 ):
+    """Apply a state-machine event and mirror the resulting state to motion.
+
+    Returns the new state after transition.
+    """
     state = state_machine.transition(event)
     if motion_manager is not None:
         motion_manager.set_state(state)
@@ -107,7 +127,16 @@ def _run_realtime_loop(
     reachy_sdk_instance,
     identity_prompt: str,
 ) -> None:
-    """Run low-latency realtime mode using OpenAI Realtime API."""
+    """Run low-latency audio interaction mode with the OpenAI Realtime API.
+
+    Responsibilities:
+    - Validate SDK and API prerequisites.
+    - Configure tool exposure for the realtime model.
+    - Stream microphone audio to the model.
+    - Play assistant audio responses back on Reachy.
+    - Translate speech/audio lifecycle events into state-machine transitions.
+    - Periodically emit health diagnostics for observability.
+    """
     if reachy_sdk_instance is None:
         raise RuntimeError("Realtime mode requires REACHY_BRIDGE_URL=sdk")
 
@@ -275,7 +304,10 @@ def _run_realtime_loop(
 
 
 def _resample_audio_chunk(chunk: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
-    """Resample mono float32 chunk from src_rate to dst_rate."""
+    """Resample a mono float32 audio chunk from `src_rate` to `dst_rate`.
+
+    Uses linear interpolation via NumPy and returns a float32 array.
+    """
     if src_rate == dst_rate:
         return chunk
     chunk = np.asarray(chunk, dtype=np.float32)
@@ -289,7 +321,11 @@ def _resample_audio_chunk(chunk: np.ndarray, src_rate: int, dst_rate: int) -> np
 
 
 def _load_identity_prompt() -> str:
-    """Load robot identity instructions from prompts/identity.txt."""
+    """Load robot identity instructions from `prompts/identity.txt`.
+
+    Raises:
+        RuntimeError: If the file cannot be read or is empty.
+    """
     src_root = Path(__file__).resolve().parents[1]
     identity_path = src_root / "prompts" / "identity.txt"
     try:
@@ -304,7 +340,12 @@ def _load_identity_prompt() -> str:
 
 
 def _configure_third_party_loggers(app_log_level: int) -> None:
-    """Keep app logs verbose while preventing third-party transport log spam."""
+    """Tune noisy dependency loggers while preserving useful app diagnostics.
+
+    The bridge keeps its own logs at the requested verbosity and reduces
+    transport/client libraries that can otherwise flood output during realtime
+    streaming.
+    """
     noisy_loggers = {
         "websockets": logging.WARNING,
         "websockets.client": logging.WARNING,

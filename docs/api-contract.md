@@ -1,11 +1,16 @@
 # Bridge API Contract (Draft)
 
-This contract defines the message exchange between the Bridge and OpenClaw.
+This contract defines the planned message exchange between the Bridge and OpenClaw.
+
+> Status: **Planned / not active in current runtime**.
+> Current runtime uses OpenAI Realtime directly for live transcription and assistant responses.
 
 ## OpenClaw HTTP API (Bridge -> OpenClaw)
 
 ### POST /v1/intent
 Send user text and receive an intent + action proposal.
+
+Note: endpoint is documented for future integration and is not called in the current bridge runtime path.
 
 Request body:
 - session_id: string
