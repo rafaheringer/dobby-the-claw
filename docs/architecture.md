@@ -20,11 +20,12 @@ This document captures the high-level architecture for the Reachy Mini + OpenCla
 ## Runtime Core Boundaries
 
 - `src/bridge/runtime/orchestrator.py` is the runtime application service and orchestration core.
-- `src/bridge/runtime/ports.py` defines runtime ports (conversation session, robot actions, tools).
+- `src/bridge/runtime/ports.py` defines runtime ports (conversation session, robot actions, tools, media IO).
 - `src/bridge/runtime/adapters/` contains concrete implementations for current infrastructure:
 	- `realtime_session.py` (OpenAI Realtime session factory)
 	- `reachy_actions.py` (ReachyClient action mapping)
 	- `tool_runtime.py` (ToolRegistry-backed tool execution)
+	- `reachy_media.py` (Reachy SDK media input/output mapping)
 - `chat_mode.py` and `realtime_mode.py` are thin adapters that configure and run the orchestrator.
 
 ## Data Flow (Simplified)

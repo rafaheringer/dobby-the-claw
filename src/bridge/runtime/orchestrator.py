@@ -15,6 +15,7 @@ from bridge.reachy.motion import MotionManager
 from bridge.state_machine import Event, StateMachine
 
 from bridge.runtime.adapters.reachy_actions import ReachyRobotActions
+from bridge.runtime.adapters.reachy_media import ReachySdkMediaIO
 from bridge.runtime.adapters.realtime_session import OpenAIRealtimeSessionFactory
 from bridge.runtime.adapters.tool_runtime import build_tool_runtime
 from bridge.runtime.audio_support import (
@@ -29,6 +30,7 @@ from bridge.runtime.ports import (
     ConversationCallbacks,
     ConversationSessionFactoryPort,
     ConversationSessionPort,
+    MediaIOPort,
     RobotActionsPort,
     ToolRuntimePort,
 )
@@ -54,13 +56,13 @@ class RuntimeOrchestrator:
         conversation_factory: ConversationSessionFactoryPort | None = None,
         robot_actions: RobotActionsPort | None = None,
         tool_runtime: ToolRuntimePort | None = None,
+        media_io: MediaIOPort | None = None,
     ) -> None:
         self.mode_name = mode_name
         self.state_machine = state_machine
         self.motion_manager = motion_manager
         self.camera_worker = camera_worker
         self.config = config
-        self.reachy_sdk_instance = reachy_sdk_instance
         self.identity_prompt = identity_prompt
         self.idle_sleep_timeout_s = idle_sleep_timeout_s
         self.interactive_text = interactive_text
@@ -69,7 +71,12 @@ class RuntimeOrchestrator:
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
         self.tool_runtime = tool_runtime or build_tool_runtime(config, camera_worker)
 
-        require_sdk_instance(mode_name, reachy_sdk_instance)
+        if media_io is None:
+            require_sdk_instance(mode_name, reachy_sdk_instance)
+            self.media_io = ReachySdkMediaIO(reachy_sdk_instance)
+        else:
+            self.media_io = media_io
+
         self.api_key = resolve_llm_api_key(config)
 
         if self.motion_manager is not None:
@@ -90,9 +97,9 @@ class RuntimeOrchestrator:
         self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
 
-        self.output_sample_rate = int(reachy_sdk_instance.media.get_output_audio_samplerate())
+        self.output_sample_rate = self.media_io.get_output_audio_samplerate()
         self.realtime_output_rate = 24000
-        self.input_sample_rate = int(reachy_sdk_instance.media.get_input_audio_samplerate())
+        self.input_sample_rate = self.media_io.get_input_audio_samplerate()
 
         self.tool_specs = self.tool_runtime.openai_specs()
         self.wakeword = build_wakeword_detector(config)
@@ -112,7 +119,7 @@ class RuntimeOrchestrator:
 
         try:
             while True:
-                sample = self.reachy_sdk_instance.media.get_audio_sample()
+                sample = self.media_io.get_audio_sample()
                 if sample is not None:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
 
@@ -127,7 +134,7 @@ class RuntimeOrchestrator:
 
                 self.playback_started, self.audio_chunks_total, self.responses_streamed = process_audio_queue(
                     audio_queue=self.audio_queue,
-                    reachy_sdk_instance=self.reachy_sdk_instance,
+                    media_io=self.media_io,
                     output_sample_rate=self.output_sample_rate,
                     realtime_output_rate=self.realtime_output_rate,
                     playback_started=self.playback_started,
@@ -167,14 +174,14 @@ class RuntimeOrchestrator:
             self.input_stop.set()
             if self.playback_started:
                 try:
-                    self.reachy_sdk_instance.media.stop_playing()
+                    self.media_io.stop_playing()
                 except Exception:
                     pass
             if self.realtime is not None:
                 self.realtime.stop()
             if self.recording_started:
                 try:
-                    self.reachy_sdk_instance.media.stop_recording()
+                    self.media_io.stop_recording()
                 except Exception:
                     pass
             if self.motion_manager is not None:
@@ -249,7 +256,7 @@ class RuntimeOrchestrator:
         logging.info("[%dms] Realtime session connected", self._elapsed_ms())
 
         if self.active_mode_uses_mic_recording and not self.recording_started:
-            self.reachy_sdk_instance.media.start_recording()
+            self.media_io.start_recording()
             self.recording_started = True
             logging.info("[%dms] Reachy microphone recording started", self._elapsed_ms())
 
@@ -266,7 +273,7 @@ class RuntimeOrchestrator:
 
         if self.playback_started:
             try:
-                self.reachy_sdk_instance.media.stop_playing()
+                self.media_io.stop_playing()
             except Exception:
                 pass
             self.playback_started = False
@@ -277,7 +284,7 @@ class RuntimeOrchestrator:
 
         if self.active_mode_uses_mic_recording and self.recording_started:
             try:
-                self.reachy_sdk_instance.media.stop_recording()
+                self.media_io.stop_recording()
             except Exception:
                 pass
             self.recording_started = False
@@ -294,7 +301,7 @@ class RuntimeOrchestrator:
 
         if not self.recording_started:
             try:
-                self.reachy_sdk_instance.media.start_recording()
+                self.media_io.start_recording()
                 self.recording_started = True
             except Exception as exc:
                 logging.warning("[%dms] Failed to start low-power microphone recording: %s", self._elapsed_ms(), exc)
@@ -308,7 +315,7 @@ class RuntimeOrchestrator:
 
         if self.recording_started:
             try:
-                self.reachy_sdk_instance.media.stop_recording()
+                self.media_io.stop_recording()
             except Exception:
                 pass
             self.recording_started = False

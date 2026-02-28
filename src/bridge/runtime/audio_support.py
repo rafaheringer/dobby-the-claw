@@ -16,7 +16,7 @@ from bridge.state_machine import Event, StateMachine
 from bridge.tools import CameraSnapshotTool, ToolRegistry
 
 from bridge.runtime.common import apply_event, resample_audio_chunk
-from bridge.runtime.ports import ConversationSessionPort
+from bridge.runtime.ports import ConversationSessionPort, MediaIOPort
 from bridge.runtime.wakeword import OfflineWakewordDetector
 
 
@@ -93,7 +93,7 @@ def build_realtime_session(
 
 def process_audio_queue(
     audio_queue: "Queue[tuple[str, Any]]",
-    reachy_sdk_instance: Any,
+    media_io: MediaIOPort,
     output_sample_rate: int,
     realtime_output_rate: int,
     playback_started: bool,
@@ -113,12 +113,12 @@ def process_audio_queue(
         if kind == "chunk":
             if not playback_started:
                 logging.info("[%dms] Playback started", elapsed_ms())
-                reachy_sdk_instance.media.start_playing()
+                media_io.start_playing()
                 playback_started = True
             chunk = payload
             if output_sample_rate != realtime_output_rate:
                 chunk = resample_audio_chunk(chunk, realtime_output_rate, output_sample_rate)
-            reachy_sdk_instance.media.push_audio_sample(chunk)
+            media_io.push_audio_sample(chunk)
             audio_chunks_total += 1
         elif kind == "done":
             responses_streamed += 1
@@ -127,7 +127,7 @@ def process_audio_queue(
         elif kind == "force_stop":
             if playback_started:
                 logging.info("[%dms] Playback stopped reason=force_stop", elapsed_ms())
-                reachy_sdk_instance.media.stop_playing()
+                media_io.stop_playing()
                 playback_started = False
 
     return playback_started, audio_chunks_total, responses_streamed
