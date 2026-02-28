@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+import logging
 import time
 import tempfile
 
@@ -93,3 +94,31 @@ class ReachyClient:
         if self._sdk_instance is None:
             self._sdk_instance = self._reachy_mini()
         return self._sdk_instance
+
+    def wake_up(self) -> None:
+        if not self._use_sdk:
+            logging.warning("Reachy wake_up ignored: non-SDK client path is not implemented")
+            return
+
+        mini = self.get_sdk_instance()
+        if hasattr(mini, "wake_up"):
+            mini.wake_up()
+            return
+        if hasattr(mini, "wake"):
+            mini.wake()
+            return
+        raise RuntimeError("Reachy SDK instance does not expose wake_up/wake")
+
+    def goto_sleep(self) -> None:
+        if not self._use_sdk:
+            logging.warning("Reachy goto_sleep ignored: non-SDK client path is not implemented")
+            return
+
+        mini = self.get_sdk_instance()
+        if hasattr(mini, "goto_sleep"):
+            mini.goto_sleep()
+            return
+        if hasattr(mini, "sleep"):
+            mini.sleep()
+            return
+        raise RuntimeError("Reachy SDK instance does not expose goto_sleep/sleep")

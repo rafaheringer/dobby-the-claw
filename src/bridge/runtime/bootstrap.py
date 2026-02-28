@@ -38,9 +38,7 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                 debug_visual_window=config.vision_debug_window,
                 debug_log_interval_s=config.vision_debug_log_interval_s,
             )
-            camera_worker.start()
             motion_manager = MotionManager(reachy_sdk_instance, camera_worker=camera_worker)
-            motion_manager.start()
         except Exception:
             reachy_sdk_instance = None
             camera_worker = None
@@ -52,6 +50,29 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
         camera_worker=camera_worker,
         motion_manager=motion_manager,
     )
+
+
+def start_runtime_workers(runtime: ReachyRuntime) -> None:
+    """Start optional SDK worker threads after lifecycle wake-up completes."""
+    if runtime.camera_worker is not None:
+        runtime.camera_worker.start()
+    if runtime.motion_manager is not None:
+        runtime.motion_manager.start()
+
+
+def stop_runtime_workers(runtime: ReachyRuntime) -> None:
+    """Stop optional SDK worker threads before lifecycle sleep/shutdown."""
+    if runtime.motion_manager is not None:
+        try:
+            runtime.motion_manager.stop()
+        except Exception as exc:
+            logging.warning("Failed to stop motion manager: %s", exc)
+
+    if runtime.camera_worker is not None:
+        try:
+            runtime.camera_worker.stop()
+        except Exception as exc:
+            logging.warning("Failed to stop camera worker: %s", exc)
 
 
 def load_identity_prompt() -> str:

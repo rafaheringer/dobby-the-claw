@@ -14,6 +14,8 @@ from bridge.runtime import (
     load_identity_prompt,
     run_chat_loop,
     run_realtime_loop,
+    start_runtime_workers,
+    stop_runtime_workers,
 )
 from bridge.state_machine import StateMachine
 
@@ -52,6 +54,14 @@ def main() -> None:
     )
 
     try:
+        runtime.reachy.wake_up()
+        logging.info("Reachy wake_up sent")
+    except Exception as exc:
+        logging.warning("Failed to wake Reachy at startup: %s", exc)
+
+    start_runtime_workers(runtime)
+
+    try:
         if args.mode == "realtime":
             run_realtime_loop(
                 state_machine=state_machine,
@@ -80,6 +90,13 @@ def main() -> None:
             time.sleep(1)
     except KeyboardInterrupt:
         logging.info("Bridge interrupted by user (Ctrl+C), shutting down")
+    finally:
+        stop_runtime_workers(runtime)
+        try:
+            runtime.reachy.goto_sleep()
+            logging.info("Reachy goto_sleep sent")
+        except Exception as exc:
+            logging.warning("Failed to send Reachy goto_sleep at shutdown: %s", exc)
 
 
 if __name__ == "__main__":
