@@ -2,7 +2,6 @@
 
 ## Runtime truth (read this first)
 - Current production path is OpenAI Realtime + Reachy SDK/bridge, not OpenClaw intent routing.
-- OpenClaw integration is planned only (`docs/api-contract.md` is future-facing).
 - There is no separate STT service in runtime; transcription comes from Realtime events.
 
 ## Big-picture architecture
@@ -45,5 +44,4 @@
 
 ## Docs consistency guidance
 - Use `README.md` + `docs/architecture.md` as the current architecture source.
-- Treat `docs/behavior-spec-v1.md` and OpenClaw contract sections as partially future/planned where they conflict with runtime code.
 - If changing runtime behavior, update docs in the same PR to keep these files aligned.

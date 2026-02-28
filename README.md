@@ -8,8 +8,6 @@ Bridge project for Reachy Mini + OpenClaw.
 - Reachy Mini is the physical body and voice.
 - OpenClaw integration is planned, but not implemented yet.
 
-See the behavior spec in [docs/behavior-spec-v1.md](docs/behavior-spec-v1.md).
-
 ## Architecture
 
 The bridge is the coordination layer between OpenAI Realtime (conversation) and Reachy Mini (body/voice).
@@ -99,4 +97,3 @@ When auto calibration is enabled, the app measures ambient microphone RMS for a 
 - [src/bridge/runtime/ports.py](src/bridge/runtime/ports.py): runtime port contracts.
 - [src/bridge/runtime/adapters](src/bridge/runtime/adapters): concrete adapters for Realtime, Reachy actions, tools, and media IO.
 - [docs/architecture.md](docs/architecture.md): architecture draft.
-- [docs/api-contract.md](docs/api-contract.md): message contract draft.
