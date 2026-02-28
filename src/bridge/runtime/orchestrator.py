@@ -13,10 +13,8 @@ from bridge.reachy.camera_worker import CameraWorker
 from bridge.reachy.client import ReachyClient
 from bridge.reachy.motion import MotionManager
 from bridge.state_machine import Event, StateMachine
-from bridge.tools import ToolRegistry
 
 from bridge.runtime.audio_support import (
-    build_tool_registry,
     build_wakeword_detector,
     maybe_log_health,
     process_audio_queue,
@@ -29,9 +27,11 @@ from bridge.runtime.ports import (
     ConversationSessionFactoryPort,
     ConversationSessionPort,
     RobotActionsPort,
+    ToolRuntimePort,
 )
 from bridge.runtime.reachy_actions_adapter import ReachyRobotActions
 from bridge.runtime.realtime_session_adapter import OpenAIRealtimeSessionFactory
+from bridge.runtime.tool_runtime_adapter import build_tool_runtime
 
 
 class RuntimeOrchestrator:
@@ -53,6 +53,7 @@ class RuntimeOrchestrator:
         active_mode_uses_mic_recording: bool,
         conversation_factory: ConversationSessionFactoryPort | None = None,
         robot_actions: RobotActionsPort | None = None,
+        tool_runtime: ToolRuntimePort | None = None,
     ) -> None:
         self.mode_name = mode_name
         self.state_machine = state_machine
@@ -66,6 +67,7 @@ class RuntimeOrchestrator:
         self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
         self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
+        self.tool_runtime = tool_runtime or build_tool_runtime(config, camera_worker)
 
         require_sdk_instance(mode_name, reachy_sdk_instance)
         self.api_key = resolve_llm_api_key(config)
@@ -92,8 +94,7 @@ class RuntimeOrchestrator:
         self.realtime_output_rate = 24000
         self.input_sample_rate = int(reachy_sdk_instance.media.get_input_audio_samplerate())
 
-        self.tool_registry: ToolRegistry = build_tool_registry(config, camera_worker)
-        self.tool_specs = self.tool_registry.openai_specs()
+        self.tool_specs = self.tool_runtime.openai_specs()
         self.wakeword = build_wakeword_detector(config)
         self.idle_sleep_enabled = idle_sleep_timeout_s > 0.0 and config.offline_wakeword_enabled
 
@@ -236,7 +237,7 @@ class RuntimeOrchestrator:
             api_key=self.api_key,
             identity_prompt=self.identity_prompt,
             tool_specs=self.tool_specs,
-            on_tool_call=self.tool_registry.execute,
+            on_tool_call=self.tool_runtime.execute,
             callbacks=callbacks,
         )
         self.realtime.start()
@@ -378,7 +379,7 @@ class RuntimeOrchestrator:
                 self.config.realtime_model,
                 self.config.realtime_transcription_model,
                 self.output_sample_rate,
-                self.tool_registry.names(),
+                self.tool_runtime.names(),
                 self.idle_sleep_enabled,
             )
             return
@@ -390,6 +391,6 @@ class RuntimeOrchestrator:
             self.config.realtime_vad_silence_ms,
             self.config.realtime_vad_prefix_padding_ms,
             self.output_sample_rate,
-            self.tool_registry.names(),
+            self.tool_runtime.names(),
             self.idle_sleep_enabled,
         )
