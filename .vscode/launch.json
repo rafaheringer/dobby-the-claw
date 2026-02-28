@@ -17,7 +17,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "bridge.main",
-      "args": ["--mode", "chat"],
+      "args": ["--mode", "chat", "--no-headtracking", "--idle-sleep-timeout-s", "10"],
       "cwd": "${workspaceFolder}/src",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",

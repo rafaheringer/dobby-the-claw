@@ -28,6 +28,17 @@ def main() -> None:
         choices=["idle", "realtime", "chat"],
         default=os.getenv("BRIDGE_MODE", "realtime"),
     )
+    parser.add_argument(
+        "--no-headtracking",
+        action="store_true",
+        help="Start with head tracking disabled (default follows HEAD_TRACKING_ENABLED).",
+    )
+    parser.add_argument(
+        "--idle-sleep-timeout-s",
+        type=float,
+        default=None,
+        help="Idle seconds before entering sleep mode (<=0 disables idle sleep).",
+    )
     args = parser.parse_args()
 
     log_level_name = os.getenv("BRIDGE_LOG_LEVEL", "INFO").upper()
@@ -39,6 +50,12 @@ def main() -> None:
     configure_third_party_loggers(log_level)
 
     config = BridgeConfig.from_env()
+    start_with_headtracking = config.head_tracking_enabled and (not args.no_headtracking)
+    idle_sleep_timeout_s = (
+        float(args.idle_sleep_timeout_s)
+        if args.idle_sleep_timeout_s is not None
+        else float(config.idle_sleep_timeout_s)
+    )
     state_machine = StateMachine()
     identity_prompt = load_identity_prompt()
     runtime = initialize_reachy_runtime(config)
@@ -52,12 +69,21 @@ def main() -> None:
         config.vision_debug_window,
         config.vision_debug_log_interval_s,
     )
+    logging.info(
+        "Startup options: headtracking=%s idle_sleep_timeout_s=%.1f offline_wakeword=%s",
+        start_with_headtracking,
+        idle_sleep_timeout_s,
+        config.offline_wakeword_enabled,
+    )
 
     try:
         runtime.reachy.wake_up()
         logging.info("Reachy wake_up sent")
     except Exception as exc:
         logging.warning("Failed to wake Reachy at startup: %s", exc)
+
+    if runtime.camera_worker is not None:
+        runtime.camera_worker.set_head_tracking_enabled(start_with_headtracking)
 
     start_runtime_workers(runtime)
 
@@ -71,6 +97,7 @@ def main() -> None:
                 config=config,
                 reachy_sdk_instance=runtime.reachy_sdk_instance,
                 identity_prompt=identity_prompt,
+                idle_sleep_timeout_s=idle_sleep_timeout_s,
             )
             return
 
@@ -83,6 +110,7 @@ def main() -> None:
                 config=config,
                 reachy_sdk_instance=runtime.reachy_sdk_instance,
                 identity_prompt=identity_prompt,
+                idle_sleep_timeout_s=idle_sleep_timeout_s,
             )
             return
 

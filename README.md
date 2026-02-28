@@ -75,6 +75,23 @@ Terminal text input mode (assistant still responds with audio via Reachy):
 python -m bridge.main --mode chat
 ```
 
+Optional startup/runtime flags:
+
+- Disable head tracking on startup:
+
+```bash
+python -m bridge.main --mode realtime --no-headtracking
+```
+
+- Override idle sleep timeout in seconds (`<=0` disables idle sleep):
+
+```bash
+python -m bridge.main --mode realtime --idle-sleep-timeout-s 300
+```
+
+
+When auto calibration is enabled, the app measures ambient microphone RMS for a few seconds after wake and updates the fallback wake detector threshold on-the-fly without blocking robot availability.
+
 ## Project Structure
 
 - [src/bridge](src/bridge): bridge code (state machine, clients, voice).
