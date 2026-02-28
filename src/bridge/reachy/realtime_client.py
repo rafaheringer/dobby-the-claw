@@ -140,6 +140,36 @@ class OpenAIRealtimeSession:
         except Exception:
             pass
 
+    def send_text(self, text: str) -> bool:
+        """Send one text turn to the realtime conversation session."""
+        text = text.strip()
+        if not text:
+            return False
+        if not self._ready.is_set() or self._loop is None or self._connection is None:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(self._send_text_message(text), self._loop)
+        try:
+            future.result(timeout=4.0)
+            return True
+        except Exception as exc:
+            logger.warning("[%dms] Failed to send text turn: %s", self._elapsed_ms(), exc)
+            self._safe_call("on_error", self.on_error, str(exc))
+            return False
+
+    async def _send_text_message(self, text: str) -> None:
+        """Append text user message and request an assistant response."""
+        if self._connection is None:
+            return
+        await self._connection.conversation.item.create(
+            item={
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": text}],
+            }
+        )
+        await self._connection.response.create(response={})
+
     def _run_thread(self) -> None:
         asyncio.run(self._run())
 
@@ -178,6 +208,7 @@ class OpenAIRealtimeSession:
                         "output": {
                             "format": {
                                 "type": "audio/pcm",
+                                "rate": 24000,
                             },
                             "voice": "ballad",
                         },

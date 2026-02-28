@@ -2,11 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Bridge Realtime",
-      "type": "python",
+      "name": "Bridge Realtime Mode",
+      "type": "debugpy",
       "request": "launch",
       "module": "bridge.main",
       "args": ["--mode", "realtime"],
+      "cwd": "${workspaceFolder}/src",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Bridge Chat Mode",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "bridge.main",
+      "args": ["--mode", "chat"],
       "cwd": "${workspaceFolder}/src",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",

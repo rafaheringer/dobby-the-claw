@@ -1,0 +1,86 @@
+"""Bootstrap utilities for bridge runtime setup."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
+
+from bridge.config import BridgeConfig
+from bridge.reachy.camera_worker import CameraWorker
+from bridge.reachy.client import ReachyClient
+from bridge.reachy.motion import MotionManager
+
+
+@dataclass
+class ReachyRuntime:
+    """Reachy runtime objects initialized from environment config."""
+
+    reachy: ReachyClient
+    reachy_sdk_instance: Any
+    camera_worker: Optional[CameraWorker]
+    motion_manager: Optional[MotionManager]
+
+
+def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
+    """Initialize Reachy client and optional SDK camera/motion workers."""
+    reachy = ReachyClient(config.reachy_bridge_url)
+    reachy_sdk_instance = None
+    camera_worker = None
+    motion_manager = None
+
+    if config.reachy_bridge_url.strip().lower().startswith("sdk"):
+        try:
+            reachy_sdk_instance = reachy.get_sdk_instance()
+            camera_worker = CameraWorker(
+                reachy_sdk_instance,
+                debug_visual_window=config.vision_debug_window,
+                debug_log_interval_s=config.vision_debug_log_interval_s,
+            )
+            camera_worker.start()
+            motion_manager = MotionManager(reachy_sdk_instance, camera_worker=camera_worker)
+            motion_manager.start()
+        except Exception:
+            reachy_sdk_instance = None
+            camera_worker = None
+            motion_manager = None
+
+    return ReachyRuntime(
+        reachy=reachy,
+        reachy_sdk_instance=reachy_sdk_instance,
+        camera_worker=camera_worker,
+        motion_manager=motion_manager,
+    )
+
+
+def load_identity_prompt() -> str:
+    """Load robot identity instructions from `prompts/identity.txt`."""
+    src_root = Path(__file__).resolve().parents[2]
+    identity_path = src_root / "prompts" / "identity.txt"
+    try:
+        content = identity_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError(f"Failed to load identity prompt at {identity_path}: {exc}") from exc
+
+    if not content:
+        raise RuntimeError(f"Identity prompt is empty: {identity_path}")
+
+    return content
+
+
+def configure_third_party_loggers(app_log_level: int) -> None:
+    """Tune noisy dependency loggers while preserving app diagnostics."""
+    noisy_loggers = {
+        "websockets": logging.WARNING,
+        "websockets.client": logging.WARNING,
+        "websockets.protocol": logging.WARNING,
+        "httpcore": logging.WARNING,
+        "httpx": logging.WARNING,
+        "openai": logging.INFO if app_log_level <= logging.DEBUG else logging.WARNING,
+        "asyncio": logging.INFO if app_log_level <= logging.DEBUG else logging.WARNING,
+    }
+    for logger_name, logger_level in noisy_loggers.items():
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logger_level)
+        logger.propagate = True

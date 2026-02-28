@@ -61,6 +61,20 @@ For Raspberry profile (optional limits):
 docker compose -f docker-compose.yml -f docker-compose.rpi.yml up --build
 ```
 
+## Quick Start (Local)
+
+With a Python virtual environment active and `.env` configured:
+
+```bash
+python -m bridge.main --mode realtime
+```
+
+Terminal text input mode (assistant still responds with audio via Reachy):
+
+```bash
+python -m bridge.main --mode chat
+```
+
 ## Project Structure
 
 - [src/bridge](src/bridge): bridge code (state machine, clients, voice).
