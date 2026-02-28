@@ -17,14 +17,15 @@ from bridge.state_machine import Event, State, StateMachine
 from bridge.tools import ToolRegistry
 
 from bridge.runtime.audio_support import (
+    build_realtime_session,
     build_tool_registry,
+    build_wakeword_detector,
     maybe_log_health,
     process_audio_queue,
     require_sdk_instance,
     resolve_llm_api_key,
 )
 from bridge.runtime.common import apply_event
-from bridge.runtime.wakeword import OfflineWakewordDetector
 
 
 def run_chat_loop(
@@ -63,16 +64,7 @@ def run_chat_loop(
 
     tool_registry: ToolRegistry = build_tool_registry(config, camera_worker)
     tool_specs = tool_registry.openai_specs()
-    wakeword = OfflineWakewordDetector(
-        aliases=config.offline_wakeword_aliases,
-        threshold=config.offline_wakeword_threshold,
-        enabled=config.offline_wakeword_enabled,
-        fallback_on_speech=config.offline_wakeword_fallback_on_speech,
-        speech_rms_threshold=config.offline_wakeword_fallback_speech_rms_threshold,
-        auto_calibration_enabled=config.offline_wakeword_auto_calibration_enabled,
-        calibration_seconds=config.offline_wakeword_calibration_seconds,
-        calibration_multiplier=config.offline_wakeword_calibration_multiplier,
-    )
+    wakeword = build_wakeword_detector(config)
     idle_sleep_enabled = idle_sleep_timeout_s > 0.0 and config.offline_wakeword_enabled
     if idle_sleep_timeout_s > 0.0 and not config.offline_wakeword_enabled:
         logging.warning("Idle sleep timeout configured, but OFFLINE_WAKEWORD_ENABLED=false; idle sleep disabled")
@@ -106,28 +98,20 @@ def run_chat_loop(
     def _on_error(message: str) -> None:
         logging.warning("[%dms] Realtime error: %s", _elapsed_ms(), message)
 
-    def _build_realtime() -> OpenAIRealtimeSession:
-        return OpenAIRealtimeSession(
+    def _start_active_session() -> None:
+        nonlocal realtime, sleeping, playback_started
+        realtime = build_realtime_session(
             api_key=api_key,
-            api_base=config.llm_api_base,
-            model=config.realtime_model,
-            instructions=identity_prompt,
-            language=config.stt_language,
-            transcription_model=config.realtime_transcription_model,
-            vad_silence_ms=config.realtime_vad_silence_ms,
-            vad_prefix_padding_ms=config.realtime_vad_prefix_padding_ms,
+            config=config,
+            identity_prompt=identity_prompt,
+            tool_specs=tool_specs,
+            on_tool_call=tool_registry.execute,
             on_user_transcript=_on_user_text,
             on_assistant_text=_on_assistant_text,
             on_assistant_audio_chunk=_on_assistant_audio_chunk,
             on_assistant_audio_done=_on_assistant_audio_done,
             on_error=_on_error,
-            tool_specs=tool_specs,
-            on_tool_call=tool_registry.execute,
         )
-
-    def _start_active_session() -> None:
-        nonlocal realtime, sleeping, playback_started
-        realtime = _build_realtime()
         realtime.start()
         if not realtime.wait_until_ready(timeout_s=8.0):
             realtime.stop()

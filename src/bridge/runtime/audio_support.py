@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from queue import Empty, Queue
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from bridge.config import BridgeConfig
 from bridge.reachy.camera_worker import CameraWorker
@@ -16,6 +16,7 @@ from bridge.state_machine import Event, StateMachine
 from bridge.tools import CameraSnapshotTool, ToolRegistry
 
 from bridge.runtime.common import apply_event, resample_audio_chunk
+from bridge.runtime.wakeword import OfflineWakewordDetector
 
 
 def require_sdk_instance(mode_name: str, reachy_sdk_instance: Any) -> None:
@@ -38,6 +39,55 @@ def build_tool_registry(config: BridgeConfig, camera_worker: Optional[CameraWork
     if config.camera_tool_enabled and camera_worker is not None:
         tool_registry.register(CameraSnapshotTool(camera_worker))
     return tool_registry
+
+
+def build_wakeword_detector(config: BridgeConfig) -> OfflineWakewordDetector:
+    """Build offline wakeword detector using bridge config values."""
+    return OfflineWakewordDetector(
+        aliases=config.offline_wakeword_aliases,
+        threshold=config.offline_wakeword_threshold,
+        enabled=config.offline_wakeword_enabled,
+        fallback_on_speech=config.offline_wakeword_fallback_on_speech,
+        speech_rms_threshold=config.offline_wakeword_fallback_speech_rms_threshold,
+        auto_calibration_enabled=config.offline_wakeword_auto_calibration_enabled,
+        calibration_seconds=config.offline_wakeword_calibration_seconds,
+        calibration_multiplier=config.offline_wakeword_calibration_multiplier,
+    )
+
+
+def build_realtime_session(
+    *,
+    api_key: str,
+    config: BridgeConfig,
+    identity_prompt: str,
+    tool_specs: Optional[List[Dict[str, Any]]],
+    on_tool_call: Optional[Callable[[str, Dict[str, Any]], Any]],
+    on_speech_start: Optional[Callable[[], None]] = None,
+    on_user_transcript: Optional[Callable[[str], None]] = None,
+    on_assistant_text: Optional[Callable[[str], None]] = None,
+    on_assistant_audio_chunk: Optional[Callable[[Any], None]] = None,
+    on_assistant_audio_done: Optional[Callable[[], None]] = None,
+    on_error: Optional[Callable[[str], None]] = None,
+) -> OpenAIRealtimeSession:
+    """Create a configured OpenAI Realtime session instance."""
+    return OpenAIRealtimeSession(
+        api_key=api_key,
+        api_base=config.llm_api_base,
+        model=config.realtime_model,
+        instructions=identity_prompt,
+        language=config.stt_language,
+        transcription_model=config.realtime_transcription_model,
+        vad_silence_ms=config.realtime_vad_silence_ms,
+        vad_prefix_padding_ms=config.realtime_vad_prefix_padding_ms,
+        on_speech_start=on_speech_start,
+        on_user_transcript=on_user_transcript,
+        on_assistant_text=on_assistant_text,
+        on_assistant_audio_chunk=on_assistant_audio_chunk,
+        on_assistant_audio_done=on_assistant_audio_done,
+        on_error=on_error,
+        tool_specs=tool_specs or [],
+        on_tool_call=on_tool_call,
+    )
 
 
 def process_audio_queue(
