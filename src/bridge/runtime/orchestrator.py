@@ -24,7 +24,13 @@ from bridge.runtime.audio_support import (
     resolve_llm_api_key,
 )
 from bridge.runtime.common import apply_event
-from bridge.runtime.ports import ConversationCallbacks, ConversationSessionFactoryPort, ConversationSessionPort
+from bridge.runtime.ports import (
+    ConversationCallbacks,
+    ConversationSessionFactoryPort,
+    ConversationSessionPort,
+    RobotActionsPort,
+)
+from bridge.runtime.reachy_actions_adapter import ReachyRobotActions
 from bridge.runtime.realtime_session_adapter import OpenAIRealtimeSessionFactory
 
 
@@ -46,10 +52,10 @@ class RuntimeOrchestrator:
         interactive_text: bool,
         active_mode_uses_mic_recording: bool,
         conversation_factory: ConversationSessionFactoryPort | None = None,
+        robot_actions: RobotActionsPort | None = None,
     ) -> None:
         self.mode_name = mode_name
         self.state_machine = state_machine
-        self.reachy = reachy
         self.motion_manager = motion_manager
         self.camera_worker = camera_worker
         self.config = config
@@ -59,6 +65,7 @@ class RuntimeOrchestrator:
         self.interactive_text = interactive_text
         self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
         self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
+        self.robot_actions = robot_actions or ReachyRobotActions(reachy)
 
         require_sdk_instance(mode_name, reachy_sdk_instance)
         self.api_key = resolve_llm_api_key(config)
@@ -186,7 +193,7 @@ class RuntimeOrchestrator:
         self.audio_queue.put(("force_stop", None))
         try:
             apply_event(self.state_machine, Event.WAKE_WORD, self.motion_manager)
-            _ = self.reachy.execute_action({"type": "gesture.listening"})
+            self.robot_actions.gesture_listening()
         except Exception as exc:
             logging.warning("[%dms] gesture.listening failed: %s", self._elapsed_ms(), exc)
 
@@ -195,7 +202,7 @@ class RuntimeOrchestrator:
         logging.info("[%dms] User %s: %s", self._elapsed_ms(), source, text)
         try:
             apply_event(self.state_machine, Event.STT_RECEIVED, self.motion_manager)
-            _ = self.reachy.execute_action({"type": "gesture.think"})
+            self.robot_actions.gesture_think()
         except Exception as exc:
             logging.warning("[%dms] gesture.think failed: %s", self._elapsed_ms(), exc)
 
@@ -280,7 +287,7 @@ class RuntimeOrchestrator:
             self.camera_worker.stop()
 
         try:
-            self.reachy.goto_sleep()
+            self.robot_actions.goto_sleep()
         except Exception as exc:
             logging.warning("[%dms] Failed to send goto_sleep: %s", self._elapsed_ms(), exc)
 
@@ -306,7 +313,7 @@ class RuntimeOrchestrator:
             self.recording_started = False
 
         try:
-            self.reachy.wake_up()
+            self.robot_actions.wake_up()
         except Exception as exc:
             logging.warning("[%dms] Failed to send wake_up: %s", self._elapsed_ms(), exc)
 
@@ -340,7 +347,7 @@ class RuntimeOrchestrator:
             self.audio_queue.put(("force_stop", None))
             try:
                 apply_event(self.state_machine, Event.WAKE_WORD, self.motion_manager)
-                _ = self.reachy.execute_action({"type": "gesture.listening"})
+                self.robot_actions.gesture_listening()
             except Exception as exc:
                 logging.warning("[%dms] gesture.listening failed: %s", self._elapsed_ms(), exc)
 
