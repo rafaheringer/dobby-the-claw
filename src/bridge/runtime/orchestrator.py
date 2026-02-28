@@ -14,6 +14,9 @@ from bridge.reachy.client import ReachyClient
 from bridge.reachy.motion import MotionManager
 from bridge.state_machine import Event, StateMachine
 
+from bridge.runtime.adapters.reachy_actions import ReachyRobotActions
+from bridge.runtime.adapters.realtime_session import OpenAIRealtimeSessionFactory
+from bridge.runtime.adapters.tool_runtime import build_tool_runtime
 from bridge.runtime.audio_support import (
     build_wakeword_detector,
     maybe_log_health,
@@ -29,9 +32,6 @@ from bridge.runtime.ports import (
     RobotActionsPort,
     ToolRuntimePort,
 )
-from bridge.runtime.reachy_actions_adapter import ReachyRobotActions
-from bridge.runtime.realtime_session_adapter import OpenAIRealtimeSessionFactory
-from bridge.runtime.tool_runtime_adapter import build_tool_runtime
 
 
 class RuntimeOrchestrator:

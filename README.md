@@ -95,5 +95,8 @@ When auto calibration is enabled, the app measures ambient microphone RMS for a 
 ## Project Structure
 
 - [src/bridge](src/bridge): bridge code (state machine, clients, voice).
+- [src/bridge/runtime/orchestrator.py](src/bridge/runtime/orchestrator.py): runtime application service (shared chat/realtime loop).
+- [src/bridge/runtime/ports.py](src/bridge/runtime/ports.py): runtime port contracts.
+- [src/bridge/runtime/adapters](src/bridge/runtime/adapters): concrete adapters for Realtime, Reachy actions, and tools.
 - [docs/architecture.md](docs/architecture.md): architecture draft.
 - [docs/api-contract.md](docs/api-contract.md): message contract draft.

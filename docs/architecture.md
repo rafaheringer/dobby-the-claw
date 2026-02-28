@@ -17,6 +17,16 @@ This document captures the high-level architecture for the Reachy Mini + OpenCla
 - Reachy Bridge API: physical motion, gestures, face tracking.
 - Optional future component: OpenClaw API (HTTP/WebSocket) for intent/planning.
 
+## Runtime Core Boundaries
+
+- `src/bridge/runtime/orchestrator.py` is the runtime application service and orchestration core.
+- `src/bridge/runtime/ports.py` defines runtime ports (conversation session, robot actions, tools).
+- `src/bridge/runtime/adapters/` contains concrete implementations for current infrastructure:
+	- `realtime_session.py` (OpenAI Realtime session factory)
+	- `reachy_actions.py` (ReachyClient action mapping)
+	- `tool_runtime.py` (ToolRegistry-backed tool execution)
+- `chat_mode.py` and `realtime_mode.py` are thin adapters that configure and run the orchestrator.
+
 ## Data Flow (Simplified)
 
 1. Audio input -> Wake word detection.
