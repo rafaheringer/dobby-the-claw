@@ -1,60 +1,56 @@
 # dobby-the-claw
 
-Bridge project for Reachy Mini + OpenClaw.
+Bridge project for Reachy Mini + OpenAI Realtime + OpenClaw delegation.
 
 ## Overview
 
-- Runtime today: OpenAI Realtime API is the active conversation brain (LLM + streaming audio).
-- Reachy Mini is the physical body and voice.
-- Reachy control path today is the SDK client (`REACHY_BRIDGE_URL=sdk`).
-- OpenClaw integration is planned, but not implemented yet.
+- Runtime conversation brain: OpenAI Realtime API (live transcription + streamed assistant audio).
+- Physical embodiment: Reachy Mini (SDK path active with `REACHY_BRIDGE_URL=sdk`).
+- Delegation path: OpenClaw gateway tool for complex or longer-running tasks.
+
+See behavior expectations in [docs/behavior-spec-v1.md](docs/behavior-spec-v1.md).
 
 ## Architecture
 
-The bridge is the coordination layer between OpenAI Realtime (conversation) and Reachy Mini (body/voice).
-It owns state transitions, low-latency IO orchestration, and tool calls.
+The bridge is the orchestration layer between user speech, OpenAI Realtime, Reachy embodiment, and optional OpenClaw delegation.
 
 ```mermaid
 flowchart LR
     user((User)) -->|Voice| mic[Audio In]
     mic -->|Wake word| voice[Voice IO]
     voice -->|Audio stream| rt[OpenAI Realtime API]
-    rt -->|Transcript + Assistant response| policy[Bridge Runtime + State Machine]
-    policy -->|Tool calls / Actions| reachy[Reachy Control Client]
-    reachy -->|Motion/Gestures| reachy_hw[Reachy Mini]
-    rt -->|Audio response stream| speaker[Reachy Speaker]
-    speaker -->|Speech| user
-
-    subgraph Local Network
-        voice
-        policy
-        reachy
-    end
+    rt -->|Transcript + Assistant response| bridge[Bridge Runtime + State Machine]
+    bridge -->|Tool calls| tools[Tool Runtime]
+    tools -->|Delegation| oc[OpenClaw Gateway]
+    bridge -->|Actions| reachy[Reachy SDK]
+    reachy -->|Motion/Gestures/Audio| hw[Reachy Mini]
+    hw -->|Speech| user
 ```
 
 Key responsibilities:
 
-- Event-driven state machine transitions (IDLE/LISTENING/THINKING/EXECUTING/CONFIRMING/ERROR).
-- Voice pipeline with OpenAI Realtime (input transcription + output audio) and interrupt handling.
-- Reachy motion/gesture orchestration via SDK client path.
-- Tool execution routing (for example, camera snapshot tool).
+- Event-driven state transitions (`IDLE/LISTENING/THINKING/DELEGATING/EXECUTING/CONFIRMING/ERROR`).
+- Voice pipeline with OpenAI Realtime (input transcription + output audio) and interruptions.
+- Reachy motion/gesture orchestration through SDK client path.
+- Tool execution routing (`camera_snapshot`, `openclaw_delegate`).
 
 ## Current Status
 
 - ✅ Implemented: Realtime voice loop with OpenAI Realtime API.
-- ✅ Active path: Reachy SDK/bridge actions and gesture orchestration; non-SDK bridge path is planned (TODO).
-- 🚧 Planned: OpenClaw `/v1/intent` integration.
+- ✅ Implemented: Reachy SDK actions + motion orchestration.
+- ✅ Implemented: OpenClaw delegation tool via local gateway WebSocket.
+- 🚧 Planned: non-SDK Reachy bridge HTTP client path.
 
 ## Quick Start (Docker)
 
-1. Copy .env.example to .env and fill values.
+1. Copy `.env.example` to `.env` and fill values.
 2. Run:
 
 ```bash
 docker compose up --build
 ```
 
-For Raspberry profile (optional limits):
+For Raspberry profile:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.rpi.yml up --build
@@ -62,39 +58,29 @@ docker compose -f docker-compose.yml -f docker-compose.rpi.yml up --build
 
 ## Quick Start (Local)
 
-With a Python virtual environment active and `.env` configured:
+With virtualenv active and `.env` configured:
 
 ```bash
 python -m bridge.main --mode realtime
 ```
 
-Terminal text input mode (assistant still responds with audio via Reachy):
+Text chat mode (assistant still outputs audio via Reachy):
 
 ```bash
 python -m bridge.main --mode chat
 ```
 
-Optional startup/runtime flags:
-
-- Disable head tracking on startup:
+Optional flags:
 
 ```bash
 python -m bridge.main --mode realtime --no-headtracking
-```
-
-- Override idle sleep timeout in seconds (`<=0` disables idle sleep):
-
-```bash
 python -m bridge.main --mode realtime --idle-sleep-timeout-s 300
 ```
 
-
-When auto calibration is enabled, the app measures ambient microphone RMS for a few seconds after wake and updates the fallback wake detector threshold on-the-fly without blocking robot availability.
-
 ## Project Structure
 
-- [src/bridge](src/bridge): bridge code (state machine, clients, voice).
-- [src/bridge/runtime/orchestrator.py](src/bridge/runtime/orchestrator.py): runtime application service (shared chat/realtime loop).
+- [src/bridge](src/bridge): bridge code (state machine, clients, tools, runtime).
+- [src/bridge/runtime/orchestrator.py](src/bridge/runtime/orchestrator.py): runtime orchestration core.
 - [src/bridge/runtime/ports.py](src/bridge/runtime/ports.py): runtime port contracts.
-- [src/bridge/runtime/adapters](src/bridge/runtime/adapters): concrete adapters for Realtime, Reachy actions, tools, and media IO.
-- [docs/architecture.md](docs/architecture.md): architecture draft.
+- [src/bridge/runtime/adapters](src/bridge/runtime/adapters): infra adapters (Realtime, Reachy, OpenClaw gateway, tools).
+- [docs/architecture.md](docs/architecture.md): architecture notes.

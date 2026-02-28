@@ -38,6 +38,19 @@ class ToolRegistry:
             )
         return specs
 
+    def runtime_guardrails(self) -> List[str]:
+        guardrails: List[str] = []
+        for tool in self._tools.values():
+            definition = tool.definition()
+            runtime_guardrail = definition.runtime_guardrail
+            if not isinstance(runtime_guardrail, str):
+                continue
+            text = runtime_guardrail.strip()
+            if not text:
+                continue
+            guardrails.append(f"[{definition.name}] {text}")
+        return guardrails
+
     def execute(self, name: str, arguments: Dict[str, Any]) -> ToolExecutionResult:
         if name not in self._tools:
             return ToolExecutionResult(output={"ok": False, "error": f"Unknown tool: {name}"})

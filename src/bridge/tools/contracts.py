@@ -9,6 +9,7 @@ class ToolDefinition:
     name: str
     description: str
     parameters: Dict[str, Any]
+    runtime_guardrail: str | None = None
 
 
 @dataclass(frozen=True)

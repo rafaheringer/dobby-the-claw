@@ -12,8 +12,9 @@ from bridge.config import BridgeConfig
 from bridge.reachy.camera_worker import CameraWorker
 from bridge.reachy.motion import MotionManager
 from bridge.reachy.realtime_client import OpenAIRealtimeSession
+from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient, OpenClawGatewayConfig
 from bridge.state_machine import Event, StateMachine
-from bridge.tools import CameraSnapshotTool, ToolRegistry
+from bridge.tools import CameraSnapshotTool, OpenClawDelegateTool, ToolRegistry
 
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.ports import ConversationSessionPort, MediaIOPort
@@ -39,6 +40,18 @@ def build_tool_registry(config: BridgeConfig, camera_worker: Optional[CameraWork
     tool_registry = ToolRegistry()
     if config.camera_tool_enabled and camera_worker is not None:
         tool_registry.register(CameraSnapshotTool(camera_worker))
+    if config.openclaw_enabled and config.openclaw_ws_url:
+        openclaw_client = OpenClawGatewayClient(
+            OpenClawGatewayConfig(
+                ws_url=config.openclaw_ws_url,
+                bearer_token=config.openclaw_bearer_token,
+                timeout_s=config.openclaw_timeout_s,
+                default_language=config.stt_language,
+            )
+        )
+        tool_registry.register(
+            OpenClawDelegateTool(openclaw_client, default_language=config.stt_language)
+        )
     return tool_registry
 
 

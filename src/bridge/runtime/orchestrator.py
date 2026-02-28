@@ -102,6 +102,7 @@ class RuntimeOrchestrator:
         self.input_sample_rate = self.media_io.get_input_audio_samplerate()
 
         self.tool_specs = self.tool_runtime.openai_specs()
+        self.identity_prompt_runtime = self._build_runtime_identity_prompt(identity_prompt)
         self.wakeword = build_wakeword_detector(config)
         self.idle_sleep_enabled = idle_sleep_timeout_s > 0.0 and config.offline_wakeword_enabled
 
@@ -227,6 +228,34 @@ class RuntimeOrchestrator:
     def _on_error(self, message: str) -> None:
         logging.warning("[%dms] Realtime error: %s", self._elapsed_ms(), message)
 
+    def _build_runtime_identity_prompt(self, identity_prompt: str) -> str:
+        tool_guardrails = [item.strip() for item in self.tool_runtime.runtime_guardrails() if item.strip()]
+        if not tool_guardrails:
+            return identity_prompt
+
+        lines = "\n".join(f"- {item}" for item in tool_guardrails)
+        runtime_guardrails = (
+            "\n\n## RUNTIME TOOL GUARDRAILS (HIGHEST PRIORITY)\n"
+            f"{lines}"
+        )
+        return f"{identity_prompt.rstrip()}{runtime_guardrails}\n"
+
+    def _execute_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        is_openclaw_delegate = name == "delegate_task"
+        if is_openclaw_delegate:
+            logging.info("[%dms] Delegating task to Open Claw", self._elapsed_ms())
+            try:
+                apply_event(self.state_machine, Event.DELEGATION_STARTED, self.motion_manager)
+                self.robot_actions.gesture_delegating()
+            except Exception as exc:
+                logging.warning("[%dms] gesture.delegating failed: %s", self._elapsed_ms(), exc)
+
+        try:
+            return self.tool_runtime.execute(name, arguments)
+        finally:
+            if is_openclaw_delegate:
+                apply_event(self.state_machine, Event.DELEGATION_DONE, self.motion_manager)
+
     def _start_active_session(self) -> None:
         callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
@@ -242,9 +271,9 @@ class RuntimeOrchestrator:
         )
         self.realtime = self.conversation_factory.create(
             api_key=self.api_key,
-            identity_prompt=self.identity_prompt,
+            identity_prompt=self.identity_prompt_runtime,
             tool_specs=self.tool_specs,
-            on_tool_call=self.tool_runtime.execute,
+            on_tool_call=self._execute_tool,
             callbacks=callbacks,
         )
         self.realtime.start()

@@ -325,7 +325,7 @@ class OpenAIRealtimeSession:
             result = ToolExecutionResult(output={"ok": False, "message": "Tooling not configured"})
         else:
             try:
-                result = self.on_tool_call(tool_name, parsed_args)
+                result = await asyncio.to_thread(self.on_tool_call, tool_name, parsed_args)
             except Exception as exc:
                 logger.exception("[%dms] Tool execution failed: %s", self._elapsed_ms(), exc)
                 result = ToolExecutionResult(output={"ok": False, "message": str(exc)})

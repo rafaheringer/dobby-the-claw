@@ -191,7 +191,7 @@ class MotionManager:
     def set_state(self, state: State) -> None:
         """Map bridge state to movement listening mode and activity updates."""
         self.mark_activity()
-        self.set_listening(state in {State.LISTENING, State.THINKING})
+        self.set_listening(state in {State.LISTENING, State.THINKING, State.DELEGATING})
 
     def queue_move(self, move: Move) -> None:
         """Queue a primary move for execution."""

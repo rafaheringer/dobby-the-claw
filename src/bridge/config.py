@@ -37,6 +37,10 @@ class BridgeConfig:
     offline_wakeword_calibration_seconds: float
     offline_wakeword_calibration_multiplier: float
     offline_wakeword_fallback_speech_rms_threshold: float
+    openclaw_enabled: bool
+    openclaw_ws_url: str
+    openclaw_bearer_token: str
+    openclaw_timeout_s: float
 
 
     @staticmethod
@@ -86,4 +90,8 @@ class BridgeConfig:
             offline_wakeword_fallback_speech_rms_threshold=float(
                 os.getenv("OFFLINE_WAKEWORD_FALLBACK_SPEECH_RMS_THRESHOLD", "0.03")
             ),
+            openclaw_enabled=_env_flag("OPENCLAW_ENABLED", True),
+            openclaw_ws_url=os.getenv("OPENCLAW_WS_URL", "ws://127.0.0.1:18789").strip(),
+            openclaw_bearer_token=os.getenv("OPENCLAW_BEARER_TOKEN", "").strip(),
+            openclaw_timeout_s=float(os.getenv("OPENCLAW_TIMEOUT_S", "45")),
         )

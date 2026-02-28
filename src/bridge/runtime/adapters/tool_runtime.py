@@ -24,6 +24,9 @@ class ToolRegistryRuntime(ToolRuntimePort):
     def openai_specs(self) -> list[dict[str, Any]]:
         return self._registry.openai_specs()
 
+    def runtime_guardrails(self) -> list[str]:
+        return self._registry.runtime_guardrails()
+
     def execute(self, name: str, arguments: dict[str, Any]) -> Any:
         return self._registry.execute(name, arguments)
 

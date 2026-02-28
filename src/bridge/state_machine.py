@@ -7,6 +7,7 @@ class State(str, Enum):
     IDLE = "IDLE"
     LISTENING = "LISTENING"
     THINKING = "THINKING"
+    DELEGATING = "DELEGATING"
     EXECUTING = "EXECUTING"
     CONFIRMING = "CONFIRMING"
     ERROR = "ERROR"
@@ -15,6 +16,8 @@ class State(str, Enum):
 class Event(str, Enum):
     WAKE_WORD = "WAKE_WORD"
     STT_RECEIVED = "STT_RECEIVED"
+    DELEGATION_STARTED = "DELEGATION_STARTED"
+    DELEGATION_DONE = "DELEGATION_DONE"
     TIMEOUT = "TIMEOUT"
     RESPONSE_READY = "RESPONSE_READY"
     RESET = "RESET"
@@ -49,12 +52,21 @@ class StateMachine:
             elif event == Event.TIMEOUT:
                 self.state = State.IDLE
         elif self.state == State.THINKING:
-            if event == Event.RESPONSE_READY:
+            if event == Event.DELEGATION_STARTED:
+                self.state = State.DELEGATING
+            elif event == Event.RESPONSE_READY:
                 self.state = State.EXECUTING
             elif event == Event.MODEL_ERROR:
                 self.state = State.ERROR
+        elif self.state == State.DELEGATING:
+            if event == Event.DELEGATION_DONE:
+                self.state = State.THINKING
+            elif event == Event.MODEL_ERROR:
+                self.state = State.ERROR
         elif self.state == State.EXECUTING:
-            if event == Event.NEED_CONFIRMATION:
+            if event == Event.DELEGATION_STARTED:
+                self.state = State.DELEGATING
+            elif event == Event.NEED_CONFIRMATION:
                 self.state = State.CONFIRMING
             elif event == Event.RESPONSE_READY:
                 self.state = State.IDLE
