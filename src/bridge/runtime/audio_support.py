@@ -16,6 +16,7 @@ from bridge.state_machine import Event, StateMachine
 from bridge.tools import CameraSnapshotTool, ToolRegistry
 
 from bridge.runtime.common import apply_event, resample_audio_chunk
+from bridge.runtime.ports import ConversationSessionPort
 from bridge.runtime.wakeword import OfflineWakewordDetector
 
 
@@ -137,7 +138,7 @@ def maybe_log_health(
     now: float,
     last_health_log: float,
     elapsed_ms: Callable[[], int],
-    realtime: OpenAIRealtimeSession,
+    realtime: ConversationSessionPort,
     playback_started: bool,
     audio_queue: "Queue[tuple[str, Any]]",
     audio_chunks_total: int,

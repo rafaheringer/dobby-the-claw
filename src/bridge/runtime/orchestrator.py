@@ -12,12 +12,10 @@ from bridge.config import BridgeConfig
 from bridge.reachy.camera_worker import CameraWorker
 from bridge.reachy.client import ReachyClient
 from bridge.reachy.motion import MotionManager
-from bridge.reachy.realtime_client import OpenAIRealtimeSession
 from bridge.state_machine import Event, StateMachine
 from bridge.tools import ToolRegistry
 
 from bridge.runtime.audio_support import (
-    build_realtime_session,
     build_tool_registry,
     build_wakeword_detector,
     maybe_log_health,
@@ -26,6 +24,8 @@ from bridge.runtime.audio_support import (
     resolve_llm_api_key,
 )
 from bridge.runtime.common import apply_event
+from bridge.runtime.ports import ConversationCallbacks, ConversationSessionFactoryPort, ConversationSessionPort
+from bridge.runtime.realtime_session_adapter import OpenAIRealtimeSessionFactory
 
 
 class RuntimeOrchestrator:
@@ -45,6 +45,7 @@ class RuntimeOrchestrator:
         idle_sleep_timeout_s: float,
         interactive_text: bool,
         active_mode_uses_mic_recording: bool,
+        conversation_factory: ConversationSessionFactoryPort | None = None,
     ) -> None:
         self.mode_name = mode_name
         self.state_machine = state_machine
@@ -57,6 +58,7 @@ class RuntimeOrchestrator:
         self.idle_sleep_timeout_s = idle_sleep_timeout_s
         self.interactive_text = interactive_text
         self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
+        self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
 
         require_sdk_instance(mode_name, reachy_sdk_instance)
         self.api_key = resolve_llm_api_key(config)
@@ -76,7 +78,7 @@ class RuntimeOrchestrator:
         self.text_turns = 0
         self.recording_started = False
         self.sleeping = False
-        self.realtime: OpenAIRealtimeSession | None = None
+        self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
 
         self.output_sample_rate = int(reachy_sdk_instance.media.get_output_audio_samplerate())
@@ -211,12 +213,7 @@ class RuntimeOrchestrator:
         logging.warning("[%dms] Realtime error: %s", self._elapsed_ms(), message)
 
     def _start_active_session(self) -> None:
-        self.realtime = build_realtime_session(
-            api_key=self.api_key,
-            config=self.config,
-            identity_prompt=self.identity_prompt,
-            tool_specs=self.tool_specs,
-            on_tool_call=self.tool_registry.execute,
+        callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
             on_user_transcript=(
                 (lambda text: self._on_user_text(text, source="said"))
@@ -227,6 +224,13 @@ class RuntimeOrchestrator:
             on_assistant_audio_chunk=self._on_assistant_audio_chunk,
             on_assistant_audio_done=self._on_assistant_audio_done,
             on_error=self._on_error,
+        )
+        self.realtime = self.conversation_factory.create(
+            api_key=self.api_key,
+            identity_prompt=self.identity_prompt,
+            tool_specs=self.tool_specs,
+            on_tool_call=self.tool_registry.execute,
+            callbacks=callbacks,
         )
         self.realtime.start()
         if not self.realtime.wait_until_ready(timeout_s=8.0):
