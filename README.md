@@ -32,14 +32,9 @@ Key responsibilities:
 - Event-driven state transitions (`IDLE/LISTENING/THINKING/DELEGATING/EXECUTING/CONFIRMING/ERROR`).
 - Voice pipeline with OpenAI Realtime (input transcription + output audio) and interruptions.
 - Reachy motion/gesture orchestration through SDK client path.
-- Tool execution routing (`camera_snapshot`, `openclaw_delegate`).
+- Tool execution routing (`camera_snapshot`, `delegate_task`).
+- Runtime instruction guardrails aggregated from tool metadata (`runtime_guardrail`).
 
-## Current Status
-
-- ✅ Implemented: Realtime voice loop with OpenAI Realtime API.
-- ✅ Implemented: Reachy SDK actions + motion orchestration.
-- ✅ Implemented: OpenClaw delegation tool via local gateway WebSocket.
-- 🚧 Planned: non-SDK Reachy bridge HTTP client path.
 
 ## Quick Start (Docker)
 

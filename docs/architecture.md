@@ -21,17 +21,18 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 - `src/bridge/runtime/orchestrator.py`: application service orchestrating sessions, state, media and tools.
 - `src/bridge/runtime/ports.py`: abstractions for sessions, robot actions, tools and media.
 - `src/bridge/runtime/adapters/`: concrete adapters (`realtime_session`, `reachy_actions`, `reachy_media`, `tool_runtime`, `openclaw_gateway`).
-- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `openclaw_delegate`).
+- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `delegate_task`).
+- `ToolDefinition.runtime_guardrail`: optional per-tool runtime policy text aggregated by tool runtime and appended to session instructions.
 
 ## Data Flow (Simplified)
 
 1. Audio input enters wakeword/voice pipeline.
 2. Realtime callbacks transition state (`WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`).
 3. Model may call tools.
-4. If `openclaw_delegate` is called:
+4. If `delegate_task` is called:
    - Bridge informs user to wait (instruction-level behavior in identity prompt).
    - Bridge enters `DELEGATING` and triggers waiting gesture.
-   - Tool calls OpenClaw Gateway over WebSocket and waits for final text.
+   - Tool calls OpenClaw Gateway over WebSocket RPC (`connect.challenge` + `connect`, then `chat.send`/`chat.history`) and waits for final text.
    - Tool result returns to Realtime function output.
 5. Realtime model produces final user-facing response (can paraphrase OpenClaw output).
 6. Assistant audio is streamed to Reachy speaker.
@@ -61,3 +62,9 @@ OpenClaw-specific values:
 
 - Current production path: Bridge + OpenAI Realtime + Reachy SDK + OpenClaw delegation tool.
 - Non-SDK Reachy HTTP path remains TODO.
+
+## Prompt/Policy Composition
+
+- Base assistant identity prompt is loaded from `src/prompts/identity.txt`.
+- Tool runtime aggregates per-tool `runtime_guardrail` entries.
+- Orchestrator appends aggregated tool guardrails to session instructions generically (without hard-coding specific tool names).
