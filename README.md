@@ -6,6 +6,7 @@ Bridge project for Reachy Mini + OpenClaw.
 
 - Runtime today: OpenAI Realtime API is the active conversation brain (LLM + streaming audio).
 - Reachy Mini is the physical body and voice.
+- Reachy control path today is the SDK client (`REACHY_BRIDGE_URL=sdk`).
 - OpenClaw integration is planned, but not implemented yet.
 
 ## Architecture
@@ -19,7 +20,7 @@ flowchart LR
     mic -->|Wake word| voice[Voice IO]
     voice -->|Audio stream| rt[OpenAI Realtime API]
     rt -->|Transcript + Assistant response| policy[Bridge Runtime + State Machine]
-    policy -->|Tool calls / Actions| reachy[Reachy Bridge API]
+    policy -->|Tool calls / Actions| reachy[Reachy Control Client]
     reachy -->|Motion/Gestures| reachy_hw[Reachy Mini]
     rt -->|Audio response stream| speaker[Reachy Speaker]
     speaker -->|Speech| user
@@ -33,15 +34,15 @@ flowchart LR
 
 Key responsibilities:
 
-- State machine transitions and timeouts (IDLE/LISTENING/THINKING/EXECUTING/CONFIRMING/ERROR).
+- Event-driven state machine transitions (IDLE/LISTENING/THINKING/EXECUTING/CONFIRMING/ERROR).
 - Voice pipeline with OpenAI Realtime (input transcription + output audio) and interrupt handling.
-- Reachy motion/gesture orchestration via reachy-bridge API.
+- Reachy motion/gesture orchestration via SDK client path.
 - Tool execution routing (for example, camera snapshot tool).
 
 ## Current Status
 
 - ✅ Implemented: Realtime voice loop with OpenAI Realtime API.
-- ✅ Implemented: Reachy SDK/bridge actions and gesture orchestration.
+- ✅ Active path: Reachy SDK/bridge actions and gesture orchestration; non-SDK bridge path is planned (TODO).
 - 🚧 Planned: OpenClaw `/v1/intent` integration.
 
 ## Quick Start (Docker)
