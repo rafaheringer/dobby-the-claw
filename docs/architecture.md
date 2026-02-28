@@ -7,14 +7,15 @@ This document captures the high-level architecture for the Reachy Mini + OpenCla
 - OpenAI Realtime is the active cognitive runtime today.
 - Reachy Mini executes physical actions and TTS.
 - The bridge coordinates state, safety policy, and IO.
-- Local API is used for all inter-process communication.
+- Runtime communication uses OpenAI Realtime (WebSocket) plus local Reachy SDK integration.
 - OpenClaw integration remains a planned next phase.
 
 ## Components
 
 - OpenAI Realtime API: live speech transcription + LLM response + streamed audio output.
 - Bridge (Python): state machine, realtime IO orchestration, tool routing.
-- Reachy Bridge API: physical motion, gestures, face tracking.
+- Reachy SDK (active path): physical motion, gestures, camera/audio media.
+- Reachy Bridge HTTP API (planned/non-SDK path): not the active runtime path today.
 - Optional future component: OpenClaw API (HTTP/WebSocket) for intent/planning.
 
 ## Runtime Core Boundaries
@@ -35,13 +36,16 @@ This document captures the high-level architecture for the Reachy Mini + OpenCla
 3. Audio stream is sent to OpenAI Realtime.
 4. Realtime returns user transcript + assistant response.
 5. Bridge executes tools/actions as needed.
-6. Bridge calls Reachy Bridge / SDK for gestures and motion.
+6. Bridge calls Reachy SDK for gestures and motion (active path via `REACHY_BRIDGE_URL=sdk`).
 7. Assistant audio is streamed back to Reachy speaker.
 
 ## State Machine
 
 States: IDLE, LISTENING, THINKING, EXECUTING, CONFIRMING, ERROR.
-Timeouts: LISTENING=10s, CONFIRMING=15s.
+
+Current behavior: transitions are event-driven by realtime callbacks (`WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`, etc.).
+Note: explicit LISTENING/CONFIRMING timers are not currently implemented as active runtime timers.
+Separate from state transitions, idle sleep is configurable via `IDLE_SLEEP_TIMEOUT_S`.
 
 Note: these states are currently driven by realtime callbacks/events, not by OpenClaw intent responses.
 
@@ -59,5 +63,6 @@ Note: these states are currently driven by realtime callbacks/events, not by Ope
 
 ## Implementation Status
 
-- Current production path: Bridge + OpenAI Realtime + Reachy Bridge/SDK.
+- Current production path: Bridge + OpenAI Realtime + Reachy SDK (`REACHY_BRIDGE_URL=sdk`).
+- Non-SDK Reachy HTTP client path remains TODO.
 - Planned path: add OpenClaw intent/planning API and route cognition through it.
