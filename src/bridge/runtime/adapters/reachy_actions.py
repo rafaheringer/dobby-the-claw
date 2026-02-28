@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bridge.reachy.actions import ListeningGestureAction, ThinkGestureAction
 from bridge.reachy.client import ReachyClient
 
 from bridge.runtime.ports import RobotActionsPort
@@ -14,10 +15,10 @@ class ReachyRobotActions(RobotActionsPort):
         self._reachy = reachy
 
     def gesture_listening(self) -> None:
-        _ = self._reachy.execute_action({"type": "gesture.listening"})
+        _ = self._reachy.execute_typed_action(ListeningGestureAction())
 
     def gesture_think(self) -> None:
-        _ = self._reachy.execute_action({"type": "gesture.think"})
+        _ = self._reachy.execute_typed_action(ThinkGestureAction())
 
     def wake_up(self) -> None:
         self._reachy.wake_up()

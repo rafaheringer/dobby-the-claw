@@ -1,9 +1,21 @@
-from typing import Any, Dict, Optional
+from typing import Any
 import logging
 import time
 import tempfile
 
 from reachy_mini.utils import create_head_pose
+
+from bridge.reachy.actions import (
+    AntennaCycleGestureAction,
+    AntennaWaveGestureAction,
+    CameraCaptureSnapshotAction,
+    GazeLookAtAction,
+    HeadMoveAction,
+    ListeningGestureAction,
+    ReachyAction,
+    ThinkGestureAction,
+)
+from bridge.reachy.results import ReachyActionResult
 
 
 class ReachyClient:
@@ -20,73 +32,77 @@ class ReachyClient:
             except ImportError:
                 self._reachy_mini = None
 
-    def execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_typed_action(self, action: ReachyAction) -> ReachyActionResult:
         if self._use_sdk:
             if self._reachy_mini is None:
                 raise RuntimeError("Reachy Mini SDK not available")
-            return self._execute_action_sdk(action)
+            return self._execute_typed_action_sdk(action)
 
-        # TODO: Implement reachy-bridge API call.
         raise NotImplementedError("Reachy client not implemented yet")
 
-    def _execute_action_sdk(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        action_type = (action.get("type") or action.get("action") or "").strip().lower()
-        if action_type in {"gesture.antenna_wave", "gesture.think", "gesture.listening"}:
-            amplitude = float(action.get("amplitude_rad", 0.35))
-            duration_s = float(action.get("duration_s", 0.6))
-            mini = self.get_sdk_instance()
-            start = mini.get_present_antenna_joint_positions()
-            mini.set_target_antenna_joint_positions([amplitude, -amplitude])
-            time.sleep(duration_s + 0.2)
-            mini.set_target_antenna_joint_positions(start)
+    def _execute_typed_action_sdk(self, action: ReachyAction) -> ReachyActionResult:
+        if isinstance(action, (AntennaWaveGestureAction, ThinkGestureAction, ListeningGestureAction)):
+            return self._run_antenna_gesture_sdk(
+                amplitude_rad=float(action.amplitude_rad),
+                duration_s=float(action.duration_s),
+            )
+        if isinstance(action, HeadMoveAction):
+            return self._run_move_head_sdk(yaw=action.yaw, pitch=action.pitch, roll=action.roll)
+        if isinstance(action, GazeLookAtAction):
+            return self._run_look_at_sdk(u=action.u, v=action.v, duration_s=action.duration_s)
+        if isinstance(action, AntennaCycleGestureAction):
+            return self._run_antenna_cycles_sdk(
+                amplitude_rad=action.amplitude_rad,
+                cycles=action.cycles,
+                duration_s=action.duration_s,
+            )
+        if isinstance(action, CameraCaptureSnapshotAction):
+            return self._run_camera_snapshot_sdk()
+        return ReachyActionResult(ok=False, message=f"Unsupported typed action: {type(action).__name__}")
+
+    def _run_antenna_gesture_sdk(self, amplitude_rad: float, duration_s: float) -> ReachyActionResult:
+        mini = self.get_sdk_instance()
+        start = mini.get_present_antenna_joint_positions()
+        mini.set_target_antenna_joint_positions([amplitude_rad, -amplitude_rad])
+        time.sleep(duration_s + 0.2)
+        mini.set_target_antenna_joint_positions(start)
+        time.sleep(duration_s)
+        return ReachyActionResult(ok=True, message="Antenna gesture complete")
+
+    def _run_move_head_sdk(self, yaw: float, pitch: float, roll: float) -> ReachyActionResult:
+        mini = self.get_sdk_instance()
+        pose = create_head_pose(roll=roll, pitch=pitch, yaw=yaw, degrees=True)
+        mini.set_target_head_pose(pose)
+        return ReachyActionResult(ok=True, message="Head target set")
+
+    def _run_look_at_sdk(self, u: int, v: int, duration_s: float) -> ReachyActionResult:
+        mini = self.get_sdk_instance()
+        mini.look_at_image(u, v, duration=duration_s, perform_movement=True)
+        return ReachyActionResult(ok=True, message="Look-at completed")
+
+    def _run_antenna_cycles_sdk(self, amplitude_rad: float, cycles: int, duration_s: float) -> ReachyActionResult:
+        mini = self.get_sdk_instance()
+        start = mini.get_present_antenna_joint_positions()
+        for index in range(max(cycles, 1)):
+            value = amplitude_rad if index % 2 == 0 else -amplitude_rad
+            mini.set_target_antenna_joint_positions([value, -value])
             time.sleep(duration_s)
-            return {"ok": True, "message": "Antenna gesture complete"}
+        mini.set_target_antenna_joint_positions(start)
+        return ReachyActionResult(ok=True, message="Antenna gesture complete")
 
-        if action_type in {"move_head", "gesture.head"}:
-            yaw = float(action.get("yaw", 0.0))
-            pitch = float(action.get("pitch", 0.0))
-            roll = float(action.get("roll", 0.0))
-            mini = self.get_sdk_instance()
-            pose = create_head_pose(roll=roll, pitch=pitch, yaw=yaw, degrees=True)
-            mini.set_target_head_pose(pose)
-            return {"ok": True, "message": "Head target set"}
-
-        if action_type in {"look_at", "gaze.look_at"}:
-            u = int(action.get("u", 0))
-            v = int(action.get("v", 0))
-            duration_s = float(action.get("duration_s", 0.0))
-            mini = self.get_sdk_instance()
-            mini.look_at_image(u, v, duration=duration_s, perform_movement=True)
-            return {"ok": True, "message": "Look-at completed"}
-
-        if action_type == "antenna_gesture":
-            amplitude = float(action.get("amplitude_rad", 0.2))
-            cycles = int(action.get("cycles", 2))
-            duration_s = float(action.get("duration_s", 0.4))
-            mini = self.get_sdk_instance()
-            start = mini.get_present_antenna_joint_positions()
-            for i in range(max(cycles, 1)):
-                value = amplitude if i % 2 == 0 else -amplitude
-                mini.set_target_antenna_joint_positions([value, -value])
-                time.sleep(duration_s)
-            mini.set_target_antenna_joint_positions(start)
-            return {"ok": True, "message": "Antenna gesture complete"}
-
-        if action_type == "camera_snapshot":
-            mini = self.get_sdk_instance()
-            frame = mini.media.get_frame()
-            if frame is None:
-                return {"ok": False, "message": "No frame available"}
-            try:
-                import cv2
-            except ImportError:
-                return {"ok": False, "message": "opencv-python not installed"}
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                path = temp_file.name
-            cv2.imwrite(path, frame)
-            return {"ok": True, "message": "Snapshot saved", "path": path}
-
-        return {"ok": False, "message": f"Unsupported action type: {action_type}"}
+    def _run_camera_snapshot_sdk(self) -> ReachyActionResult:
+        mini = self.get_sdk_instance()
+        frame = mini.media.get_frame()
+        if frame is None:
+            return ReachyActionResult(ok=False, message="No frame available")
+        try:
+            import cv2
+        except ImportError:
+            return ReachyActionResult(ok=False, message="opencv-python not installed")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+            path = temp_file.name
+        cv2.imwrite(path, frame)
+        return ReachyActionResult(ok=True, message="Snapshot saved", path=path)
 
     def get_sdk_instance(self):
         if not self._use_sdk or self._reachy_mini is None:
@@ -101,11 +117,12 @@ class ReachyClient:
             return
 
         mini = self.get_sdk_instance()
-        if hasattr(mini, "wake_up"):
-            mini.wake_up()
+        mini_any: Any = mini
+        if hasattr(mini_any, "wake_up"):
+            mini_any.wake_up()
             return
-        if hasattr(mini, "wake"):
-            mini.wake()
+        if hasattr(mini_any, "wake"):
+            mini_any.wake()
             return
         raise RuntimeError("Reachy SDK instance does not expose wake_up/wake")
 
@@ -115,10 +132,11 @@ class ReachyClient:
             return
 
         mini = self.get_sdk_instance()
-        if hasattr(mini, "goto_sleep"):
-            mini.goto_sleep()
+        mini_any: Any = mini
+        if hasattr(mini_any, "goto_sleep"):
+            mini_any.goto_sleep()
             return
-        if hasattr(mini, "sleep"):
-            mini.sleep()
+        if hasattr(mini_any, "sleep"):
+            mini_any.sleep()
             return
         raise RuntimeError("Reachy SDK instance does not expose goto_sleep/sleep")
