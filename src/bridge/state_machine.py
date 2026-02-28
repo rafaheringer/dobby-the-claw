@@ -17,6 +17,7 @@ class Event(str, Enum):
     STT_RECEIVED = "STT_RECEIVED"
     TIMEOUT = "TIMEOUT"
     RESPONSE_READY = "RESPONSE_READY"
+    RESET = "RESET"
     MODEL_ERROR = "MODEL_ERROR"
     NEED_CONFIRMATION = "NEED_CONFIRMATION"
     CONFIRMED = "CONFIRMED"
@@ -35,6 +36,10 @@ class StateMachine:
         self.state = State.IDLE
 
     def transition(self, event: Event) -> State:
+        if event == Event.RESET:
+            self.state = State.IDLE
+            return self.state
+
         if self.state == State.IDLE:
             if event == Event.WAKE_WORD:
                 self.state = State.LISTENING

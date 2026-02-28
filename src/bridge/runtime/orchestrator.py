@@ -13,7 +13,7 @@ from bridge.reachy.camera_worker import CameraWorker
 from bridge.reachy.client import ReachyClient
 from bridge.reachy.motion import MotionManager
 from bridge.reachy.realtime_client import OpenAIRealtimeSession
-from bridge.state_machine import Event, State, StateMachine
+from bridge.state_machine import Event, StateMachine
 from bridge.tools import ToolRegistry
 
 from bridge.runtime.audio_support import (
@@ -287,7 +287,7 @@ class RuntimeOrchestrator:
             except Exception as exc:
                 logging.warning("[%dms] Failed to start low-power microphone recording: %s", self._elapsed_ms(), exc)
 
-        self.state_machine.state = State.IDLE
+        apply_event(self.state_machine, Event.RESET, self.motion_manager)
         self.sleeping = True
         self.wakeword.reset()
 
