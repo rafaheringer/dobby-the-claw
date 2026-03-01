@@ -2,8 +2,8 @@ from typing import Any
 import logging
 import time
 import tempfile
-import json
-from urllib import error, request
+import platform
+import subprocess
 
 from reachy_mini.utils import create_head_pose
 
@@ -148,37 +148,47 @@ class ReachyClient:
             logging.warning("Reachy set_output_volume ignored: non-SDK client path is not implemented")
             return
 
-        mini = self.get_sdk_instance()
-        mini_any: Any = mini
+        self.get_sdk_instance()
         level = max(0, min(100, int(volume)))
 
-        if hasattr(mini_any, "set_output_volume"):
-            mini_any.set_output_volume(level)
+        if platform.system() != "Linux":
+            raise RuntimeError("Native Reachy output volume control is currently implemented only on Linux")
+
+        card_name = self._get_linux_audio_card_name()
+        try:
+            subprocess.run(
+                ["amixer", "-c", card_name, "sset", "PCM", f"{level}%"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=True,
+            )
+            subprocess.run(
+                ["amixer", "-c", card_name, "sset", "PCM,1", "100%"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=True,
+            )
+            logging.info("Reachy output volume set to %s via amixer card=%s", level, card_name)
             return
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.CalledProcessError) as exc:
+            raise RuntimeError(f"Failed to set Reachy output volume via amixer: {exc}") from exc
 
-        status: dict[str, Any] = {}
+    def _get_linux_audio_card_name(self) -> str:
         try:
-            status_raw = mini_any.client.get_status()
-            if isinstance(status_raw, dict):
-                status = status_raw
-        except Exception:
-            status = {}
-
-
-        payload = json.dumps({"volume": level}).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        last_error: Exception | None = None
-
-        url = f"http://127.0.0.1:8000/api/volume/set"
-        req = request.Request(url, data=payload, headers=headers, method="POST")
-        try:
-            with request.urlopen(req, timeout=2.0) as response:
-                if 200 <= int(response.status) < 300:
-                    logging.info("Reachy output volume set to %s via %s", level, url)
-                    return
-        except (error.HTTPError, error.URLError, TimeoutError, ValueError) as exc:
-            last_error = exc
-
-        raise RuntimeError(
-            f"Failed to set Reachy output volume via native daemon API; last_error={last_error}"
-        )
+            result = subprocess.run(
+                ["aplay", "-l"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            output = result.stdout.lower()
+            if "reachy mini audio" in output:
+                return "Audio"
+            if "respeaker" in output:
+                return "Array"
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        return "Audio"
