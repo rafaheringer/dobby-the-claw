@@ -94,6 +94,7 @@ class RuntimeOrchestrator:
         self.text_turns = 0
         self.recording_started = False
         self.sleeping = False
+        self.sleep_after_response = threading.Event()
         self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
 
@@ -133,6 +134,7 @@ class RuntimeOrchestrator:
                 if sample is not None and self.realtime is not None and self.active_mode_uses_mic_recording:
                     self.realtime.feed_audio(self.input_sample_rate, sample)
 
+                previous_responses_streamed = self.responses_streamed
                 self.playback_started, self.audio_chunks_total, self.responses_streamed = process_audio_queue(
                     audio_queue=self.audio_queue,
                     media_io=self.media_io,
@@ -145,6 +147,13 @@ class RuntimeOrchestrator:
                     state_machine=self.state_machine,
                     motion_manager=self.motion_manager,
                 )
+                if (
+                    self.sleep_after_response.is_set()
+                    and self.responses_streamed > previous_responses_streamed
+                ):
+                    self.sleep_after_response.clear()
+                    self._enter_sleep_mode()
+                    continue
 
                 if self.interactive_text:
                     should_exit = self._drain_text_queue()
@@ -251,7 +260,12 @@ class RuntimeOrchestrator:
                 logging.warning("[%dms] gesture.delegating failed: %s", self._elapsed_ms(), exc)
 
         try:
-            return self.tool_runtime.execute(name, arguments)
+            result = self.tool_runtime.execute(name, arguments)
+            if name == "go_to_sleep":
+                output = getattr(result, "output", None)
+                if isinstance(output, dict) and output.get("ok"):
+                    self._queue_sleep_request()
+            return result
         finally:
             if is_openclaw_delegate:
                 apply_event(self.state_machine, Event.DELEGATION_DONE, self.motion_manager)
@@ -338,6 +352,15 @@ class RuntimeOrchestrator:
         apply_event(self.state_machine, Event.RESET, self.motion_manager)
         self.sleeping = True
         self.wakeword.reset()
+
+    def _queue_sleep_request(self) -> None:
+        if self.sleeping:
+            logging.info("[%dms] Sleep request ignored; already sleeping", self._elapsed_ms())
+            return
+        if self.sleep_after_response.is_set():
+            return
+        logging.info("[%dms] Sleep requested by tool", self._elapsed_ms())
+        self.sleep_after_response.set()
 
     def _wake_from_sleep_mode(self) -> None:
         logging.info("[%dms] Offline wakeword detected, waking up", self._elapsed_ms())

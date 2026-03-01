@@ -34,7 +34,7 @@ Key responsibilities:
 - Event-driven state transitions (`IDLE/LISTENING/THINKING/DELEGATING/EXECUTING/CONFIRMING/ERROR`).
 - Voice pipeline with OpenAI Realtime (input transcription + output audio) and interruptions.
 - Reachy motion/gesture orchestration through SDK client path.
-- Tool execution routing (`camera_snapshot`, `delegate_task`, `discover_home_devices`, `control_home_device`).
+- Tool execution routing (`camera_snapshot`, `delegate_task`, `go_to_sleep`, `discover_home_devices`, `control_home_device`).
 - Runtime instruction guardrails aggregated from tool metadata (`runtime_guardrail`).
 
 ## Home Assistant Tools
@@ -42,6 +42,10 @@ Key responsibilities:
 - `discover_home_devices`: lists entities and available services (optionally filtered by domain).
 - `control_home_device`: executes a device action (`domain.service`) on selected targets.
 - Sensitive domains require explicit confirmation via the `confirmed=true` argument.
+
+## Sleep Tool
+
+- `go_to_sleep`: puts Reachy into sleep mode and waits for the wake word.
 
 
 ## Quick Start (Docker)

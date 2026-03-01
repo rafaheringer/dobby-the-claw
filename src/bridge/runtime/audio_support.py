@@ -16,6 +16,7 @@ from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient, Open
 from bridge.state_machine import Event, StateMachine
 from bridge.tools import (
     CameraSnapshotTool,
+    GoToSleepTool,
     HomeAssistantDiscoverTool,
     HomeAssistantExecuteActionTool,
     HomeAssistantWsClient,
@@ -46,6 +47,12 @@ def resolve_llm_api_key(config: BridgeConfig) -> str:
 def build_tool_registry(config: BridgeConfig, camera_worker: Optional[CameraWorker]) -> ToolRegistry:
     """Build and populate runtime tool registry based on config."""
     tool_registry = ToolRegistry()
+    tool_registry.register(
+        GoToSleepTool(
+            wakeword_enabled=config.offline_wakeword_enabled,
+            wakeword_aliases=config.offline_wakeword_aliases,
+        )
+    )
     if config.camera_tool_enabled and camera_worker is not None:
         tool_registry.register(CameraSnapshotTool(camera_worker))
     if config.openclaw_enabled and config.openclaw_ws_url:
