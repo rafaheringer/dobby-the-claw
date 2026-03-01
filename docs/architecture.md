@@ -15,6 +15,7 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 - OpenAI Realtime API: live transcription, model responses, streamed assistant audio.
 - Bridge Runtime (Python): state machine, orchestration, tool routing, wakeword/idle logic.
 - Reachy SDK (active path): motion, gestures, camera/audio media.
+- Camera worker can provide index-finger-based antenna override (1 finger -> both antennas, 2 fingers -> left/right split), temporarily overriding antenna breathing sway while active.
 - OpenClaw Gateway (WebSocket): delegated task execution.
 - Home Assistant (WebSocket API): entity discovery and service execution.
 

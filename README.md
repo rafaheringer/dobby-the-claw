@@ -84,6 +84,19 @@ python -m bridge.main --mode realtime --no-headtracking
 python -m bridge.main --mode realtime --idle-sleep-timeout-s 300
 ```
 
+## Vision Antenna Finger Control
+
+When MediaPipe is available, the camera worker can map raised index fingers to antennas:
+
+- 1 raised index finger: both antennas follow that finger lift.
+- 2 raised index fingers (one per hand): each antenna follows one finger independently.
+- While finger control is active, antenna breathing sway is overridden.
+
+Environment tuning:
+
+- `ANTENNA_FINGER_TRACKING_ENABLED=1` enables/disables this feature.
+- `ANTENNA_FINGER_MAX_ANGLE_DEG=180.0` keeps the example-style orientation mapping effectively unclipped.
+
 ## Project Structure
 
 - [src/bridge](src/bridge): bridge code (state machine, clients, tools, runtime).

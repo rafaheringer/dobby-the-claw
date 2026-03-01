@@ -121,6 +121,9 @@ class MovementState:
     last_activity_time: float = 0.0
     speech_offsets: Tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     face_tracking_offsets: Tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    antenna_finger_active: bool = False
+    antenna_finger_offsets: Tuple[float, float] = (0.0, 0.0)
+    antenna_finger_count: int = 0
     last_primary_pose: FullBodyPose | None = None
 
     def update_activity(self) -> None:
@@ -505,12 +508,19 @@ class MotionManager:
             self._listening_antennas = (float(target_antennas[0]), float(target_antennas[1]))
         return antennas_cmd
 
-    def _update_face_tracking(self) -> None:
-        """Pull face tracking offsets from camera worker."""
+    def _update_camera_tracking(self) -> None:
+        """Pull face and finger tracking offsets from camera worker."""
         if self.camera_worker is None:
             self.state.face_tracking_offsets = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            self.state.antenna_finger_active = False
+            self.state.antenna_finger_offsets = (0.0, 0.0)
+            self.state.antenna_finger_count = 0
             return
         self.state.face_tracking_offsets = self.camera_worker.get_face_tracking_offsets()
+        hand_active, hand_offsets, finger_count = self.camera_worker.get_antenna_finger_control()
+        self.state.antenna_finger_active = bool(hand_active)
+        self.state.antenna_finger_offsets = (float(hand_offsets[0]), float(hand_offsets[1]))
+        self.state.antenna_finger_count = int(finger_count)
 
     def _issue_control_command(self, head: NDArray[np.float64], antennas: Tuple[float, float], body_yaw: float) -> None:
         """Send fused pose to robot using a single set_target call."""
@@ -526,6 +536,8 @@ class MotionManager:
             "queue_size": len(self.move_queue),
             "is_listening": self._is_listening,
             "breathing_active": self._breathing_active,
+            "antenna_finger_active": self.state.antenna_finger_active,
+            "antenna_finger_count": self.state.antenna_finger_count,
         }
 
     def working_loop(self) -> None:
@@ -536,12 +548,20 @@ class MotionManager:
             self._poll_signals(loop_start)
             self._manage_move_queue(loop_start)
             self._manage_breathing(loop_start)
-            self._update_face_tracking()
+            self._update_camera_tracking()
 
             primary = self._get_primary_pose(loop_start)
             secondary = self._get_secondary_pose(loop_start)
             head, antennas, body_yaw = combine_full_body(primary, secondary)
-            antennas_cmd = self._calculate_blended_antennas(antennas)
+            if self.state.antenna_finger_active:
+                antennas_cmd = (
+                    float(self.state.antenna_finger_offsets[0]),
+                    float(self.state.antenna_finger_offsets[1]),
+                )
+                self._listening_antennas = antennas_cmd
+                self._antenna_unfreeze_blend = 1.0
+            else:
+                antennas_cmd = self._calculate_blended_antennas(antennas)
             self._issue_control_command(head, antennas_cmd, body_yaw)
 
             computation_time = self._now() - loop_start

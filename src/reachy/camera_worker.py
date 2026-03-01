@@ -17,13 +17,13 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation as R
 
 from reachy_mini.utils.interpolation import linear_pose_interpolation
+from reachy.finger_antenna_controller import FingerAntennaController
 from reachy.head_roll_controller import HeadRollController
 
 try:
     import cv2
 except ImportError:  # pragma: no cover - optional dependency
     cv2 = None
-
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,8 @@ class CameraWorker:
         head_tracker: Any = None,
         debug_visual_window: bool = False,
         debug_log_interval_s: float = 1.0,
+        antenna_finger_tracking_enabled: bool = True,
+        antenna_finger_max_angle_deg: float = 28.0,
     ) -> None:
         """Initialize camera worker dependencies and tracking state."""
         self.reachy_mini = reachy_mini
@@ -91,6 +93,15 @@ class CameraWorker:
         self._smoothed_eye_center: Optional[np.ndarray] = None
         self._camera_loop_period_s = 0.02
 
+        self._finger_antenna_controller = FingerAntennaController(
+            enabled=antenna_finger_tracking_enabled,
+            max_angle_deg=antenna_finger_max_angle_deg,
+        )
+        self._hand_control_lock = threading.Lock()
+        self._hand_control_active = False
+        self._hand_control_offsets: Tuple[float, float] = (0.0, 0.0)
+        self._last_index_finger_count = 0
+
     def _configure_debug_window_environment(self) -> None:
         """Prepare Qt env vars to reduce noisy warnings in OpenCV debug windows."""
         if not self._debug_visual_window:
@@ -122,6 +133,11 @@ class CameraWorker:
             offsets = self.face_tracking_offsets
             return (offsets[0], offsets[1], offsets[2], offsets[3], offsets[4], offsets[5])
 
+    def get_antenna_finger_control(self) -> Tuple[bool, Tuple[float, float], int]:
+        """Return current antenna hand-control state: active flag, offsets and finger count."""
+        with self._hand_control_lock:
+            return (self._hand_control_active, self._hand_control_offsets, self._last_index_finger_count)
+
     def set_head_tracking_enabled(self, enabled: bool) -> None:
         """Enable or disable head tracking updates."""
         self.is_head_tracking_enabled = enabled
@@ -139,6 +155,7 @@ class CameraWorker:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
+        self._finger_antenna_controller.close()
         if self._debug_visual_window and cv2 is not None:
             try:
                 cv2.destroyWindow(self._debug_window_name)
@@ -156,6 +173,7 @@ class CameraWorker:
         if self.last_face_detected_time is not None:
             time_since_face_s = max(0.0, current_time - self.last_face_detected_time)
             face_detected_recently = time_since_face_s <= self.face_lost_delay
+        finger_control_active, antenna_finger_offsets, index_finger_count = self.get_antenna_finger_control()
         return {
             "tracking_enabled": self.is_head_tracking_enabled,
             "face_detected_recently": face_detected_recently,
@@ -168,6 +186,9 @@ class CameraWorker:
             "neutral_lock": bool(self._roll_controller.is_neutral_locked),
             "target_pixels": self._last_target_pixels,
             "frame_size": self._last_frame_size,
+            "finger_control_active": bool(finger_control_active),
+            "index_finger_count": int(index_finger_count),
+            "antenna_finger_offsets": tuple(antenna_finger_offsets),
         }
 
     def working_loop(self) -> None:
@@ -184,6 +205,8 @@ class CameraWorker:
                 if frame is not None:
                     with self.frame_lock:
                         self.latest_frame = frame
+
+                    self._update_antenna_finger_control(frame, current_time)
 
                     if self.previous_head_tracking_state and not self.is_head_tracking_enabled:
                         self.last_face_detected_time = current_time
@@ -390,6 +413,14 @@ class CameraWorker:
             tilt = float(np.deg2rad(tilt))
         return float(np.clip(tilt, -np.deg2rad(30.0), np.deg2rad(30.0)))
 
+    def _update_antenna_finger_control(self, frame: NDArray[np.uint8], current_time: float) -> None:
+        """Update antenna offsets from finger controller output."""
+        state = self._finger_antenna_controller.update(frame, current_time)
+        with self._hand_control_lock:
+            self._hand_control_active = bool(state.active)
+            self._hand_control_offsets = (float(state.offsets[0]), float(state.offsets[1]))
+            self._last_index_finger_count = int(state.finger_count)
+
     def _stabilize_eye_center(self, eye_center: Optional[np.ndarray]) -> Optional[np.ndarray]:
         """Low-pass + deadband stabilization for target center to avoid micro-corrections."""
         if eye_center is None:
@@ -444,7 +475,7 @@ class CameraWorker:
         snapshot = self.get_tracking_debug_snapshot()
         offsets = snapshot["offsets"]
         logger.debug(
-            "Vision debug enabled=%s face=%s lock=%s since=%.2fs eye=%s tilt=%.3f bias=%.3f imitated_roll=%.3f target=%s offs_xyz=(%.3f,%.3f,%.3f) offs_rpy=(%.3f,%.3f,%.3f)",
+            "Vision debug enabled=%s face=%s lock=%s since=%.2fs eye=%s tilt=%.3f bias=%.3f imitated_roll=%.3f target=%s offs_xyz=(%.3f,%.3f,%.3f) offs_rpy=(%.3f,%.3f,%.3f) finger_active=%s fingers=%d ant=(%.3f,%.3f)",
             snapshot["tracking_enabled"],
             snapshot["face_detected_recently"],
             snapshot["neutral_lock"],
@@ -460,6 +491,10 @@ class CameraWorker:
             offsets[3],
             offsets[4],
             offsets[5],
+            snapshot["finger_control_active"],
+            snapshot["index_finger_count"],
+            snapshot["antenna_finger_offsets"][0],
+            snapshot["antenna_finger_offsets"][1],
         )
 
     def _render_debug_visual(self, frame: NDArray[np.uint8]) -> None:
@@ -511,6 +546,18 @@ class CameraWorker:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
                 (255, 255, 0),
+                1,
+                cv2.LINE_AA,
+            )
+            hand_active, hand_offsets, finger_count = self.get_antenna_finger_control()
+            hand_color = (0, 255, 0) if hand_active else (150, 150, 150)
+            cv2.putText(
+                vis,
+                f"fingers={finger_count} antenna=({hand_offsets[0]:+.3f},{hand_offsets[1]:+.3f})",
+                (10, 114),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                hand_color,
                 1,
                 cv2.LINE_AA,
             )
