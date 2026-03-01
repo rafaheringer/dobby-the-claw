@@ -9,9 +9,9 @@ from queue import Empty, Queue
 from typing import Any, Optional
 
 from bridge.config import BridgeConfig
-from bridge.reachy.camera_worker import CameraWorker
-from bridge.reachy.client import ReachyClient
-from bridge.reachy.motion import MotionManager
+from reachy.camera_worker import CameraWorker
+from reachy.client import ReachyClient
+from reachy.motion import MotionManager
 from bridge.state_machine import Event, StateMachine
 
 from bridge.runtime.adapters.reachy_actions import ReachyRobotActions

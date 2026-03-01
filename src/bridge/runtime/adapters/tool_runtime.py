@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from bridge.config import BridgeConfig
-from bridge.reachy.camera_worker import CameraWorker
+from reachy.camera_worker import CameraWorker
 
 from bridge.runtime.audio_support import build_tool_registry
 from bridge.runtime.ports import ToolRuntimePort

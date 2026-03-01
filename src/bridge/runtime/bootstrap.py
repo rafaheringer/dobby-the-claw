@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from bridge.config import BridgeConfig
-from bridge.reachy.camera_worker import CameraWorker
-from bridge.reachy.client import ReachyClient
-from bridge.reachy.motion import MotionManager
+from reachy.camera_worker import CameraWorker
+from reachy.client import ReachyClient
+from reachy.motion import MotionManager
 
 
 @dataclass

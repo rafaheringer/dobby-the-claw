@@ -9,9 +9,9 @@ from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional
 
 from bridge.config import BridgeConfig
-from bridge.reachy.camera_worker import CameraWorker
-from bridge.reachy.motion import MotionManager
-from bridge.reachy.realtime_client import OpenAIRealtimeSession
+from reachy.camera_worker import CameraWorker
+from reachy.motion import MotionManager
+from reachy.realtime_client import OpenAIRealtimeSession
 from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient, OpenClawGatewayConfig
 from bridge.state_machine import Event, StateMachine
 from bridge.tools import (

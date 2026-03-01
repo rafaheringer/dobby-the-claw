@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from bridge.reachy.motion import MotionManager
+from reachy.motion import MotionManager
 from bridge.state_machine import Event, StateMachine
 
 

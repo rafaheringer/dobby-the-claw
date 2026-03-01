@@ -7,7 +7,7 @@ import subprocess
 
 from reachy_mini.utils import create_head_pose
 
-from bridge.reachy.actions import (
+from reachy.actions import (
     AntennaCycleGestureAction,
     AntennaWaveGestureAction,
     CameraCaptureSnapshotAction,
@@ -17,7 +17,7 @@ from bridge.reachy.actions import (
     ReachyAction,
     ThinkGestureAction,
 )
-from bridge.reachy.results import ReachyActionResult
+from reachy.results import ReachyActionResult
 
 
 class ReachyClient:

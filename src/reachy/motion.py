@@ -22,7 +22,7 @@ from numpy.typing import NDArray
 from reachy_mini.utils import create_head_pose
 from reachy_mini.utils.interpolation import compose_world_offset, linear_pose_interpolation
 
-from bridge.reachy.speech_tapper import HOP_MS, SwayRollRT
+from reachy.speech_tapper import HOP_MS, SwayRollRT
 from bridge.state_machine import State
 
 logger = logging.getLogger(__name__)

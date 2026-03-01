@@ -8,10 +8,10 @@
 - Entry point: `python -m bridge.main` (`src/bridge/main.py`).
 - Main loop in realtime mode: `_run_realtime_loop(...)`.
 - Core boundaries:
-  - `bridge.reachy.realtime_client.OpenAIRealtimeSession`: websocket session, audio in/out, tool-call handling.
+  - `reachy.realtime_client.OpenAIRealtimeSession`: websocket session, audio in/out, tool-call handling.
   - `bridge.state_machine.StateMachine`: finite-state transitions (`IDLE/LISTENING/THINKING/EXECUTING/CONFIRMING/ERROR`).
-  - `bridge.reachy.client.ReachyClient`: action executor; SDK path active when `REACHY_BRIDGE_URL=sdk`.
-  - `bridge.reachy.motion.MotionManager` + `bridge.reachy.camera_worker.CameraWorker`: physical behavior loop and tracking.
+  - `reachy.client.ReachyClient`: action executor; SDK path active when `REACHY_BRIDGE_URL=sdk`.
+  - `reachy.motion.MotionManager` + `reachy.camera_worker.CameraWorker`: physical behavior loop and tracking.
 
 ## Realtime event-to-state mapping
 - Speech start callback triggers `Event.WAKE_WORD` and listening gesture.

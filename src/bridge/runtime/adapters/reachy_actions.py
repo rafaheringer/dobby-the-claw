@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from bridge.reachy.actions import (
+from reachy.actions import (
     AntennaCycleGestureAction,
     ListeningGestureAction,
     ThinkGestureAction,
 )
-from bridge.reachy.client import ReachyClient
+from reachy.client import ReachyClient
 
 from bridge.runtime.ports import RobotActionsPort
 
