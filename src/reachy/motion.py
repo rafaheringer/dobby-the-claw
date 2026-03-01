@@ -168,13 +168,13 @@ class MotionManager:
         self._sway_rt = SwayRollRT()
 
         self._body_yaw_tracking_enabled = True
-        self._body_yaw_gain = 0.7
-        self._body_yaw_enter_threshold_rad = 0.22
-        self._body_yaw_exit_threshold_rad = 0.12
+        self._body_yaw_gain = 1.35
+        self._body_yaw_enter_threshold_rad = 0.08
+        self._body_yaw_exit_threshold_rad = 0.04
         if self._body_yaw_exit_threshold_rad > self._body_yaw_enter_threshold_rad:
             self._body_yaw_exit_threshold_rad = self._body_yaw_enter_threshold_rad
-        self._body_yaw_max_rad = 1.05
-        self._body_yaw_max_speed_rad_s = 0.9
+        self._body_yaw_max_rad = 1.2
+        self._body_yaw_max_speed_rad_s = 1.0
         self._body_yaw_tracking_active = False
         self._body_yaw_current_rad = 0.0
         self._last_secondary_pose_time = self._now()

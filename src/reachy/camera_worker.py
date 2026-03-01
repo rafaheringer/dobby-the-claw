@@ -78,7 +78,14 @@ class CameraWorker:
         self._roll_controller = HeadRollController()
 
         self._look_at_translation_gain = 0.5
-        self._look_at_rotation_gain = 0.5
+        self._yaw_from_center_gain = 0.90
+        self._yaw_from_center_deadband = 0.06
+        self._yaw_from_center_max_rad = 1.20
+        self._yaw_from_center_smoothing_alpha = 0.16
+        self._smoothed_yaw_from_center = 0.0
+        self._pitch_from_center_gain = 0.22
+        self._pitch_from_center_deadband = 0.08
+        self._pitch_from_center_max_rad = 0.22
         self._eye_center_deadband = 0.035
         self._eye_center_smoothing_alpha = 0.22
         self._smoothed_eye_center: Optional[np.ndarray] = None
@@ -187,6 +194,7 @@ class CameraWorker:
                         self._last_filtered_tilt_rad = 0.0
                         self._last_head_tilt_bias_rad = 0.0
                         self._smoothed_eye_center = None
+                        self._smoothed_yaw_from_center = 0.0
                         self._roll_controller.reset()
 
                     self.previous_head_tracking_state = self.is_head_tracking_enabled
@@ -216,7 +224,36 @@ class CameraWorker:
                             )
 
                             translation = target_pose[:3, 3] * self._look_at_translation_gain
-                            rotation = R.from_matrix(target_pose[:3, :3]).as_euler("xyz", degrees=False) * self._look_at_rotation_gain
+                            center_error_x = float(eye_center[0])
+                            center_error_y = float(eye_center[1])
+
+                            yaw_from_center = 0.0
+                            if abs(center_error_x) >= self._yaw_from_center_deadband:
+                                yaw_from_center = -center_error_x * self._yaw_from_center_gain
+                            yaw_from_center = float(
+                                np.clip(
+                                    yaw_from_center,
+                                    -self._yaw_from_center_max_rad,
+                                    self._yaw_from_center_max_rad,
+                                )
+                            )
+                            yaw_alpha = float(np.clip(self._yaw_from_center_smoothing_alpha, 0.01, 1.0))
+                            self._smoothed_yaw_from_center = (
+                                (1.0 - yaw_alpha) * self._smoothed_yaw_from_center
+                                + yaw_alpha * yaw_from_center
+                            )
+
+                            pitch_from_center = 0.0
+                            if abs(center_error_y) >= self._pitch_from_center_deadband:
+                                pitch_from_center = center_error_y * self._pitch_from_center_gain
+                            pitch_from_center = float(
+                                np.clip(
+                                    pitch_from_center,
+                                    -self._pitch_from_center_max_rad,
+                                    self._pitch_from_center_max_rad,
+                                )
+                            )
+
                             imitated_roll = self._roll_controller.update(head_tilt_rad, now=current_time)
                             self._last_imitated_roll_rad = imitated_roll
                             self._last_filtered_tilt_rad = self._roll_controller.last_filtered_tilt_rad
@@ -228,11 +265,12 @@ class CameraWorker:
                                     float(translation[1]),
                                     float(translation[2]),
                                     float(imitated_roll),
-                                    float(rotation[1]),
-                                    float(rotation[2]),
+                                    float(pitch_from_center),
+                                    float(self._smoothed_yaw_from_center),
                                 ]
                         else:
                             self._smoothed_eye_center = None
+                            self._smoothed_yaw_from_center *= 0.8
 
                     if self.last_face_detected_time is not None:
                         time_since_face_lost = current_time - self.last_face_detected_time
