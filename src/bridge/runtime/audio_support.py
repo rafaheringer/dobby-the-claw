@@ -16,6 +16,7 @@ from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient, Open
 from bridge.state_machine import Event, StateMachine
 from bridge.tools import (
     CameraSnapshotTool,
+    DanceTool,
     GoToSleepTool,
     HomeAssistantDiscoverTool,
     HomeAssistantExecuteActionTool,
@@ -24,6 +25,7 @@ from bridge.tools import (
     OpenClawDelegateTool,
     ToolRegistry,
 )
+from bridge.tools.dance import DANCE_AVAILABLE
 
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.ports import ConversationSessionPort, MediaIOPort
@@ -44,7 +46,11 @@ def resolve_llm_api_key(config: BridgeConfig) -> str:
     return api_key
 
 
-def build_tool_registry(config: BridgeConfig, camera_worker: Optional[CameraWorker]) -> ToolRegistry:
+def build_tool_registry(
+    config: BridgeConfig,
+    camera_worker: Optional[CameraWorker],
+    motion_manager: Optional[MotionManager],
+) -> ToolRegistry:
     """Build and populate runtime tool registry based on config."""
     tool_registry = ToolRegistry()
     tool_registry.register(
@@ -55,6 +61,8 @@ def build_tool_registry(config: BridgeConfig, camera_worker: Optional[CameraWork
     )
     if config.camera_tool_enabled and camera_worker is not None:
         tool_registry.register(CameraSnapshotTool(camera_worker))
+    if DANCE_AVAILABLE and motion_manager is not None:
+        tool_registry.register(DanceTool(motion_manager))
     if config.openclaw_enabled and config.openclaw_ws_url:
         openclaw_client = OpenClawGatewayClient(
             OpenClawGatewayConfig(

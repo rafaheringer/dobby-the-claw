@@ -34,7 +34,7 @@ Key responsibilities:
 - Event-driven state transitions (`IDLE/LISTENING/THINKING/DELEGATING/EXECUTING/CONFIRMING/ERROR`).
 - Voice pipeline with OpenAI Realtime (input transcription + output audio) and interruptions.
 - Reachy motion/gesture orchestration through SDK client path.
-- Tool execution routing (`camera_snapshot`, `delegate_task`, `go_to_sleep`, `discover_home_devices`, `control_home_device`).
+- Tool execution routing (`camera_snapshot`, `delegate_task`, `go_to_sleep`, `discover_home_devices`, `control_home_device`, `dance`).
 - Runtime instruction guardrails aggregated from tool metadata (`runtime_guardrail`).
 
 ## Home Assistant Tools
