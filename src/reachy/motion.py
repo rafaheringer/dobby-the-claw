@@ -331,11 +331,21 @@ class MotionManager:
         if command == "queue_move" and isinstance(payload, Move):
             self.move_queue.append(payload)
             self.state.update_activity()
+            logger.info("Queued move: %s (queue_size=%d)", type(payload).__name__, len(self.move_queue))
+            # Interrupt breathing if a non-breathing move is queued
+            if self._breathing_active and not isinstance(payload, BreathingMove):
+                logger.info("Interrupting breathing to execute queued move")
+                self.state.current_move = None
+                self.state.move_start_time = None
+                self._breathing_active = False
         elif command == "clear_queue":
+            cleared = len(self.move_queue)
             self.move_queue.clear()
             self.state.current_move = None
             self.state.move_start_time = None
             self._breathing_active = False
+            if cleared > 0:
+                logger.info("Cleared %d queued moves", cleared)
         elif command == "mark_activity":
             self.state.update_activity()
         elif command == "set_listening":
@@ -357,12 +367,18 @@ class MotionManager:
             self.state.move_start_time is not None
             and current_time - self.state.move_start_time >= self.state.current_move.duration
         ):
+            if self.state.current_move is not None:
+                logger.info("Move completed: %s (duration=%.2fs)", type(self.state.current_move).__name__, self.state.current_move.duration)
             self.state.current_move = None
             self.state.move_start_time = None
             if self.move_queue:
                 self.state.current_move = self.move_queue.popleft()
                 self.state.move_start_time = current_time
                 self._breathing_active = isinstance(self.state.current_move, BreathingMove)
+                logger.info("Starting move: %s (duration=%.2fs, queue_size=%d)", 
+                           type(self.state.current_move).__name__, 
+                           self.state.current_move.duration,
+                           len(self.move_queue))
 
     def _manage_breathing(self, current_time: float) -> None:
         """Start breathing move automatically when idle and not listening."""
@@ -502,7 +518,7 @@ class MotionManager:
             self.current_robot.set_target(head=head, antennas=antennas, body_yaw=body_yaw)
             self._last_commanded_pose = clone_full_body_pose((head, antennas, body_yaw))
         except Exception as exc:
-            logger.debug("Failed to set robot target: %s", exc)
+            logger.warning("Failed to set robot target: %s", exc, exc_info=True)
 
     def get_status(self) -> Dict[str, Any]:
         """Return movement status snapshot for diagnostics."""

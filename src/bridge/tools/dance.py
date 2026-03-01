@@ -47,6 +47,7 @@ class DanceQueueMove(Move):
             raise RuntimeError("Dance library not available")
         self._move_name = move_name
         self._dance_move = DanceMove(move_name)
+        self._logged_start = False
 
     @property
     def duration(self) -> float:
@@ -59,6 +60,10 @@ class DanceQueueMove(Move):
             head_pose, antennas, body_yaw = self._dance_move.evaluate(t)
             if isinstance(antennas, tuple):
                 antennas = np.array([antennas[0], antennas[1]], dtype=np.float64)
+            # Log once when move starts
+            if not self._logged_start and t < 0.1:
+                logger.info("Executing dance move '%s' (duration=%.2fs)", self._move_name, self.duration)
+                self._logged_start = True
             return head_pose, antennas, body_yaw
         except Exception as exc:
             logger.error("Error evaluating dance move '%s': %s", self._move_name, exc)
