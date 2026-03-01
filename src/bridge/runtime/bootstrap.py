@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -11,6 +12,23 @@ from bridge.config import BridgeConfig
 from reachy.camera_worker import CameraWorker
 from reachy.client import ReachyClient
 from reachy.motion import MotionManager
+
+
+def _build_head_tracker() -> Any:
+    """Create optional MediaPipe-based head tracker when available."""
+    if importlib.util.find_spec("mediapipe") is None:
+        logging.warning("MediaPipe not installed; head tracking backend unavailable")
+        return None
+
+    try:
+        from reachy_mini_toolbox.vision import HeadTracker
+
+        tracker = HeadTracker()
+        logging.info("Head tracking backend: MediaPipe HeadTracker")
+        return tracker
+    except Exception as exc:
+        logging.warning("Failed to initialize MediaPipe HeadTracker: %s", exc)
+        return None
 
 
 @dataclass
@@ -33,12 +51,17 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
     if config.reachy_bridge_url.strip().lower().startswith("sdk"):
         try:
             reachy_sdk_instance = reachy.get_sdk_instance()
+            head_tracker = _build_head_tracker()
             camera_worker = CameraWorker(
                 reachy_sdk_instance,
+                head_tracker=head_tracker,
                 debug_visual_window=config.vision_debug_window,
                 debug_log_interval_s=config.vision_debug_log_interval_s,
             )
-            motion_manager = MotionManager(reachy_sdk_instance, camera_worker=camera_worker)
+            motion_manager = MotionManager(
+                reachy_sdk_instance,
+                camera_worker=camera_worker,
+            )
         except Exception:
             reachy_sdk_instance = None
             camera_worker = None

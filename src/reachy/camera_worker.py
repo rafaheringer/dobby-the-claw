@@ -7,6 +7,7 @@ and smoothly interpolate back to neutral when tracking is lost.
 """
 
 import logging
+import os
 import threading
 import time
 from typing import Any, List, Optional, Tuple
@@ -16,6 +17,7 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation as R
 
 from reachy_mini.utils.interpolation import linear_pose_interpolation
+from reachy.head_roll_controller import HeadRollController
 
 try:
     import cv2
@@ -58,6 +60,10 @@ class CameraWorker:
         self.previous_head_tracking_state = self.is_head_tracking_enabled
 
         self._last_eye_center: Optional[np.ndarray] = None
+        self._last_head_tilt_rad = 0.0
+        self._last_imitated_roll_rad = 0.0
+        self._last_head_tilt_bias_rad = 0.0
+        self._last_filtered_tilt_rad = 0.0
         self._last_target_pixels: Optional[Tuple[float, float]] = None
         self._last_frame_size: Tuple[int, int] = (0, 0)
 
@@ -66,15 +72,35 @@ class CameraWorker:
         self._debug_window_failed = False
         self._debug_log_interval_s = max(0.2, float(debug_log_interval_s))
         self._last_debug_log_ts = 0.0
+        self._configure_debug_window_environment()
 
-        self._fallback_face_detector = None
-        if cv2 is not None:
-            cascade_root = getattr(cv2, "data", None)
-            if cascade_root is not None:
-                cascade = cascade_root.haarcascades + "haarcascade_frontalface_default.xml"
-            else:
-                cascade = "haarcascade_frontalface_default.xml"
-            self._fallback_face_detector = cv2.CascadeClassifier(cascade)
+        self._head_tracker_missing_logged = False
+        self._roll_controller = HeadRollController()
+
+        self._look_at_translation_gain = 0.5
+        self._look_at_rotation_gain = 0.5
+        self._eye_center_deadband = 0.035
+        self._eye_center_smoothing_alpha = 0.22
+        self._smoothed_eye_center: Optional[np.ndarray] = None
+        self._camera_loop_period_s = 0.02
+
+    def _configure_debug_window_environment(self) -> None:
+        """Prepare Qt env vars to reduce noisy warnings in OpenCV debug windows."""
+        if not self._debug_visual_window:
+            return
+        if "QT_QPA_FONTDIR" in os.environ:
+            return
+
+        font_candidates = (
+            "/usr/share/fonts/truetype/dejavu",
+            "/usr/share/fonts/dejavu",
+            "/usr/share/fonts/truetype/liberation",
+        )
+        for path in font_candidates:
+            if os.path.isdir(path):
+                os.environ["QT_QPA_FONTDIR"] = path
+                logger.debug("Vision debug: QT_QPA_FONTDIR set to %s", path)
+                break
 
     def get_latest_frame(self) -> NDArray[np.uint8] | None:
         """Return the latest BGR frame copy in a thread-safe way."""
@@ -129,6 +155,10 @@ class CameraWorker:
             "time_since_face_s": time_since_face_s,
             "offsets": offsets,
             "eye_center": None if self._last_eye_center is None else (float(self._last_eye_center[0]), float(self._last_eye_center[1])),
+            "head_tilt_rad": float(self._last_head_tilt_rad),
+            "head_tilt_bias_rad": float(self._last_head_tilt_bias_rad),
+            "imitated_roll_rad": float(self._last_imitated_roll_rad),
+            "neutral_lock": bool(self._roll_controller.is_neutral_locked),
             "target_pixels": self._last_target_pixels,
             "frame_size": self._last_frame_size,
         }
@@ -152,12 +182,22 @@ class CameraWorker:
                         self.last_face_detected_time = current_time
                         self.interpolation_start_time = None
                         self.interpolation_start_pose = None
+                        self._last_head_tilt_rad = 0.0
+                        self._last_imitated_roll_rad = 0.0
+                        self._last_filtered_tilt_rad = 0.0
+                        self._last_head_tilt_bias_rad = 0.0
+                        self._smoothed_eye_center = None
+                        self._roll_controller.reset()
 
                     self.previous_head_tracking_state = self.is_head_tracking_enabled
 
                     if self.is_head_tracking_enabled:
-                        eye_center = self._get_eye_center(frame)
+                        tracking_target = self._get_tracking_target(frame)
+                        eye_center = None if tracking_target is None else tracking_target[0]
+                        head_tilt_rad = 0.0 if tracking_target is None else float(tracking_target[1])
+                        eye_center = self._stabilize_eye_center(eye_center)
                         self._last_eye_center = eye_center
+                        self._last_head_tilt_rad = head_tilt_rad
                         if eye_center is not None:
                             self.last_face_detected_time = current_time
                             self.interpolation_start_time = None
@@ -175,18 +215,24 @@ class CameraWorker:
                                 perform_movement=False,
                             )
 
-                            translation = target_pose[:3, 3] * 0.6
-                            rotation = R.from_matrix(target_pose[:3, :3]).as_euler("xyz", degrees=False) * 0.6
+                            translation = target_pose[:3, 3] * self._look_at_translation_gain
+                            rotation = R.from_matrix(target_pose[:3, :3]).as_euler("xyz", degrees=False) * self._look_at_rotation_gain
+                            imitated_roll = self._roll_controller.update(head_tilt_rad, now=current_time)
+                            self._last_imitated_roll_rad = imitated_roll
+                            self._last_filtered_tilt_rad = self._roll_controller.last_filtered_tilt_rad
+                            self._last_head_tilt_bias_rad = self._roll_controller.bias_rad
 
                             with self.face_tracking_lock:
                                 self.face_tracking_offsets = [
                                     float(translation[0]),
                                     float(translation[1]),
                                     float(translation[2]),
-                                    float(rotation[0]),
+                                    float(imitated_roll),
                                     float(rotation[1]),
                                     float(rotation[2]),
                                 ]
+                        else:
+                            self._smoothed_eye_center = None
 
                     if self.last_face_detected_time is not None:
                         time_since_face_lost = current_time - self.last_face_detected_time
@@ -227,32 +273,130 @@ class CameraWorker:
                     self._maybe_emit_debug_log(current_time)
                     self._render_debug_visual(frame)
 
-                time.sleep(0.04)
+                time.sleep(self._camera_loop_period_s)
             except Exception as exc:
                 logger.error("Camera worker error: %s", exc)
                 time.sleep(0.1)
 
         logger.debug("Camera worker thread exited")
 
-    def _get_eye_center(self, frame: NDArray[np.uint8]) -> Optional[np.ndarray]:
-        """Return eye center in normalized coordinates [-1, 1]."""
-        if self.head_tracker is not None:
-            eye_center, _ = self.head_tracker.get_head_position(frame)
-            return eye_center
-
-        if cv2 is None or self._fallback_face_detector is None:
+    def _get_tracking_target(self, frame: NDArray[np.uint8]) -> Optional[Tuple[np.ndarray, float]]:
+        """Return face target center and head tilt roll estimate in radians."""
+        if self.head_tracker is None:
+            if not self._head_tracker_missing_logged:
+                logger.warning("Head tracking backend not available; no face target will be produced")
+                self._head_tracker_missing_logged = True
             return None
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self._fallback_face_detector.detectMultiScale(gray, 1.3, 5)
-        if len(faces) == 0:
+        try:
+            result = self.head_tracker.get_head_position(frame)
+        except Exception as exc:
+            logger.debug("Head tracker failed: %s", exc)
             return None
 
-        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-        center_x = x + (w / 2.0)
-        center_y = y + (h / 2.0)
-        h_img, w_img = frame.shape[:2]
-        return np.array([(center_x / w_img) * 2.0 - 1.0, (center_y / h_img) * 2.0 - 1.0], dtype=np.float32)
+        if result is None:
+            return None
+
+        eye_center = None
+        tracker_payload: Any = None
+        if isinstance(result, tuple):
+            if len(result) >= 1:
+                eye_center = result[0]
+            if len(result) >= 2:
+                tracker_payload = result[1]
+        else:
+            eye_center = result
+
+        if eye_center is None:
+            return None
+
+        tilt = self._extract_tracker_tilt_rad(tracker_payload)
+        if tilt is None:
+            tilt = 0.0
+        return (np.asarray(eye_center, dtype=np.float32), tilt)
+
+    def _extract_tracker_tilt_rad(self, payload: Any) -> Optional[float]:
+        """Extract tilt roll from tracker payload using tolerant key parsing."""
+        if payload is None:
+            return None
+
+        value: Any = None
+        if isinstance(payload, dict):
+            for key in (
+                "roll_rad",
+                "head_roll_rad",
+                "tilt_rad",
+                "roll",
+                "head_roll",
+                "tilt",
+            ):
+                if key in payload:
+                    value = payload[key]
+                    break
+        elif isinstance(payload, (float, int, np.floating)):
+            value = payload
+        elif isinstance(payload, (tuple, list)) and payload:
+            first = payload[0]
+            if isinstance(first, (float, int, np.floating)):
+                value = first
+
+        if value is None:
+            return None
+
+        try:
+            tilt = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        if abs(tilt) > np.pi:
+            tilt = float(np.deg2rad(tilt))
+        return float(np.clip(tilt, -np.deg2rad(30.0), np.deg2rad(30.0)))
+
+    def _stabilize_eye_center(self, eye_center: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """Low-pass + deadband stabilization for target center to avoid micro-corrections."""
+        if eye_center is None:
+            return None
+
+        center = np.asarray(eye_center, dtype=np.float32).reshape(2)
+        if self._smoothed_eye_center is None:
+            self._smoothed_eye_center = center
+            return center
+
+        delta = center - self._smoothed_eye_center
+        stabilized = center.copy()
+        for index in (0, 1):
+            if abs(float(delta[index])) < self._eye_center_deadband:
+                stabilized[index] = self._smoothed_eye_center[index]
+
+        alpha = float(np.clip(self._eye_center_smoothing_alpha, 0.01, 1.0))
+        self._smoothed_eye_center = ((1.0 - alpha) * self._smoothed_eye_center) + (alpha * stabilized)
+        return self._smoothed_eye_center.astype(np.float32)
+
+    def _draw_tilt_indicator(self, vis: NDArray[np.uint8], detected_tilt_rad: float, imitated_roll_rad: float) -> None:
+        """Draw compact tilt plot (detected vs applied) in debug view."""
+        cv = cv2
+        if cv is None:
+            return
+        h, w = vis.shape[:2]
+        cx = w - 110
+        cy = 78
+        radius = 44
+        cv.circle(vis, (cx, cy), radius, (180, 180, 180), 1)
+
+        baseline_left = (cx - radius, cy)
+        baseline_right = (cx + radius, cy)
+        cv.line(vis, baseline_left, baseline_right, (120, 120, 120), 1)
+
+        def _endpoint(angle_rad: float, color: Tuple[int, int, int], label: str, label_y: int) -> None:
+            dx = int(np.cos(-angle_rad) * radius)
+            dy = int(np.sin(-angle_rad) * radius)
+            end = (cx + dx, cy + dy)
+            cv.arrowedLine(vis, (cx, cy), end, color, 2, tipLength=0.2)
+            cv.putText(vis, label, (cx - radius, label_y), cv.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv.LINE_AA)
+
+        _endpoint(float(detected_tilt_rad), (0, 255, 255), "det", cy + radius + 16)
+        _endpoint(float(imitated_roll_rad), (0, 255, 0), "app", cy + radius + 32)
+        cv.putText(vis, "tilt", (cx - 18, cy + radius + 16), cv.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1, cv.LINE_AA)
 
     def _maybe_emit_debug_log(self, current_time: float) -> None:
         """Emit periodic compact tracking telemetry for debugging."""
@@ -262,11 +406,15 @@ class CameraWorker:
         snapshot = self.get_tracking_debug_snapshot()
         offsets = snapshot["offsets"]
         logger.debug(
-            "Vision debug enabled=%s face=%s since=%.2fs eye=%s target=%s offs_xyz=(%.3f,%.3f,%.3f) offs_rpy=(%.3f,%.3f,%.3f)",
+            "Vision debug enabled=%s face=%s lock=%s since=%.2fs eye=%s tilt=%.3f bias=%.3f imitated_roll=%.3f target=%s offs_xyz=(%.3f,%.3f,%.3f) offs_rpy=(%.3f,%.3f,%.3f)",
             snapshot["tracking_enabled"],
             snapshot["face_detected_recently"],
+            snapshot["neutral_lock"],
             snapshot["time_since_face_s"] if snapshot["time_since_face_s"] is not None else -1.0,
             snapshot["eye_center"],
+            snapshot["head_tilt_rad"],
+            snapshot["head_tilt_bias_rad"],
+            snapshot["imitated_roll_rad"],
             snapshot["target_pixels"],
             offsets[0],
             offsets[1],
@@ -296,7 +444,7 @@ class CameraWorker:
                 offsets = tuple(self.face_tracking_offsets)
             face_detected = self.last_face_detected_time is not None and (time.time() - self.last_face_detected_time) <= self.face_lost_delay
             status_color = (0, 220, 0) if face_detected else (0, 0, 220)
-            status_text = f"tracking={self.is_head_tracking_enabled} face={face_detected}"
+            status_text = f"tracking={self.is_head_tracking_enabled} face={face_detected} lock={self._roll_controller.is_neutral_locked}"
             cv2.putText(vis, status_text, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2, cv2.LINE_AA)
             cv2.putText(
                 vis,
@@ -317,6 +465,22 @@ class CameraWorker:
                 (255, 255, 0),
                 1,
                 cv2.LINE_AA,
+            )
+            cv2.putText(
+                vis,
+                f"tilt_raw={self._last_head_tilt_rad:+.3f} bias={self._last_head_tilt_bias_rad:+.3f} filt={self._last_filtered_tilt_rad:+.3f} roll={self._last_imitated_roll_rad:+.3f}",
+                (10, 92),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 0),
+                1,
+                cv2.LINE_AA,
+            )
+
+            self._draw_tilt_indicator(
+                vis,
+                detected_tilt_rad=self._last_head_tilt_rad,
+                imitated_roll_rad=self._last_imitated_roll_rad,
             )
 
             cv2.imshow(self._debug_window_name, vis)

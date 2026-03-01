@@ -167,6 +167,18 @@ class MotionManager:
         self._speech_animation_thread: threading.Thread | None = None
         self._sway_rt = SwayRollRT()
 
+        self._body_yaw_tracking_enabled = True
+        self._body_yaw_gain = 0.7
+        self._body_yaw_enter_threshold_rad = 0.22
+        self._body_yaw_exit_threshold_rad = 0.12
+        if self._body_yaw_exit_threshold_rad > self._body_yaw_enter_threshold_rad:
+            self._body_yaw_exit_threshold_rad = self._body_yaw_enter_threshold_rad
+        self._body_yaw_max_rad = 1.05
+        self._body_yaw_max_speed_rad_s = 0.9
+        self._body_yaw_tracking_active = False
+        self._body_yaw_current_rad = 0.0
+        self._last_secondary_pose_time = self._now()
+
     def start(self) -> None:
         """Start the movement worker loop thread."""
         if self._thread is not None and self._thread.is_alive():
@@ -187,6 +199,9 @@ class MotionManager:
             self.current_robot.goto_target(head=neutral_head_pose, antennas=[0.0, 0.0], duration=1.5, body_yaw=0.0)
         except Exception as exc:
             logger.debug("Failed to reset neutral pose: %s", exc)
+        self._body_yaw_tracking_active = False
+        self._body_yaw_current_rad = 0.0
+        self._last_secondary_pose_time = self._now()
 
     def set_state(self, state: State) -> None:
         """Map bridge state to movement listening mode and activity updates."""
@@ -393,8 +408,43 @@ class MotionManager:
         self.state.last_primary_pose = clone_full_body_pose(primary)
         return primary
 
-    def _get_secondary_pose(self) -> FullBodyPose:
+    def _compute_body_yaw_offset(self, dt: float) -> float:
+        """Compute smoothed body yaw offset from face-tracking yaw."""
+        if not self._body_yaw_tracking_enabled:
+            self._body_yaw_tracking_active = False
+            self._body_yaw_current_rad = 0.0
+            return 0.0
+
+        tracking_yaw = float(self.state.face_tracking_offsets[5])
+        abs_tracking_yaw = abs(tracking_yaw)
+
+        if self._body_yaw_tracking_active:
+            if abs_tracking_yaw <= self._body_yaw_exit_threshold_rad:
+                self._body_yaw_tracking_active = False
+        elif abs_tracking_yaw >= self._body_yaw_enter_threshold_rad:
+            self._body_yaw_tracking_active = True
+
+        target_body_yaw = 0.0
+        if self._body_yaw_tracking_active:
+            target_body_yaw = tracking_yaw * self._body_yaw_gain
+            target_body_yaw = max(-self._body_yaw_max_rad, min(self._body_yaw_max_rad, target_body_yaw))
+
+        if self._body_yaw_max_speed_rad_s > 0.0 and dt > 0.0:
+            max_step = self._body_yaw_max_speed_rad_s * dt
+            delta = target_body_yaw - self._body_yaw_current_rad
+            delta = max(-max_step, min(max_step, delta))
+            self._body_yaw_current_rad += delta
+        else:
+            self._body_yaw_current_rad = target_body_yaw
+
+        if abs(self._body_yaw_current_rad) < 1e-4:
+            self._body_yaw_current_rad = 0.0
+        return self._body_yaw_current_rad
+
+    def _get_secondary_pose(self, current_time: float) -> FullBodyPose:
         """Compose secondary pose from speech and camera offsets."""
+        dt = max(0.0, current_time - self._last_secondary_pose_time)
+        self._last_secondary_pose_time = current_time
         secondary_offsets = [
             self.state.speech_offsets[0] + self.state.face_tracking_offsets[0],
             self.state.speech_offsets[1] + self.state.face_tracking_offsets[1],
@@ -413,7 +463,8 @@ class MotionManager:
             degrees=False,
             mm=False,
         )
-        return (secondary_head_pose, (0.0, 0.0), 0.0)
+        secondary_body_yaw = self._compute_body_yaw_offset(dt)
+        return (secondary_head_pose, (0.0, 0.0), secondary_body_yaw)
 
     def _calculate_blended_antennas(self, target_antennas: Tuple[float, float]) -> Tuple[float, float]:
         """Freeze antennas while listening, then blend back smoothly."""
@@ -472,7 +523,7 @@ class MotionManager:
             self._update_face_tracking()
 
             primary = self._get_primary_pose(loop_start)
-            secondary = self._get_secondary_pose()
+            secondary = self._get_secondary_pose(loop_start)
             head, antennas, body_yaw = combine_full_body(primary, secondary)
             antennas_cmd = self._calculate_blended_antennas(antennas)
             self._issue_control_command(head, antennas_cmd, body_yaw)
