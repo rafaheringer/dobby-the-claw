@@ -14,7 +14,15 @@ from bridge.reachy.motion import MotionManager
 from bridge.reachy.realtime_client import OpenAIRealtimeSession
 from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient, OpenClawGatewayConfig
 from bridge.state_machine import Event, StateMachine
-from bridge.tools import CameraSnapshotTool, OpenClawDelegateTool, ToolRegistry
+from bridge.tools import (
+    CameraSnapshotTool,
+    HomeAssistantDiscoverTool,
+    HomeAssistantExecuteActionTool,
+    HomeAssistantWsClient,
+    HomeAssistantWsConfig,
+    OpenClawDelegateTool,
+    ToolRegistry,
+)
 
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.ports import ConversationSessionPort, MediaIOPort
@@ -52,6 +60,26 @@ def build_tool_registry(config: BridgeConfig, camera_worker: Optional[CameraWork
         tool_registry.register(
             OpenClawDelegateTool(openclaw_client, default_language=config.stt_language)
         )
+    if config.home_assistant_enabled:
+        if not config.home_assistant_token:
+            logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_TOKEN is empty")
+        elif not config.home_assistant_ws_url:
+            logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_WS_URL is empty")
+        else:
+            home_assistant_client = HomeAssistantWsClient(
+                HomeAssistantWsConfig(
+                    ws_url=config.home_assistant_ws_url,
+                    access_token=config.home_assistant_token,
+                    timeout_s=config.home_assistant_timeout_s,
+                )
+            )
+            tool_registry.register(HomeAssistantDiscoverTool(home_assistant_client))
+            tool_registry.register(
+                HomeAssistantExecuteActionTool(
+                    home_assistant_client,
+                    sensitive_domains=config.home_assistant_sensitive_domains,
+                )
+            )
     return tool_registry
 
 

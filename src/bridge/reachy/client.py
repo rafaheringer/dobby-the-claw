@@ -2,6 +2,8 @@ from typing import Any
 import logging
 import time
 import tempfile
+import json
+from urllib import error, request
 
 from reachy_mini.utils import create_head_pose
 
@@ -140,3 +142,43 @@ class ReachyClient:
             mini_any.sleep()
             return
         raise RuntimeError("Reachy SDK instance does not expose goto_sleep/sleep")
+
+    def set_output_volume(self, volume: int) -> None:
+        if not self._use_sdk:
+            logging.warning("Reachy set_output_volume ignored: non-SDK client path is not implemented")
+            return
+
+        mini = self.get_sdk_instance()
+        mini_any: Any = mini
+        level = max(0, min(100, int(volume)))
+
+        if hasattr(mini_any, "set_output_volume"):
+            mini_any.set_output_volume(level)
+            return
+
+        status: dict[str, Any] = {}
+        try:
+            status_raw = mini_any.client.get_status()
+            if isinstance(status_raw, dict):
+                status = status_raw
+        except Exception:
+            status = {}
+
+
+        payload = json.dumps({"volume": level}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        last_error: Exception | None = None
+
+        url = f"http://127.0.0.1:8000/api/volume/set"
+        req = request.Request(url, data=payload, headers=headers, method="POST")
+        try:
+            with request.urlopen(req, timeout=2.0) as response:
+                if 200 <= int(response.status) < 300:
+                    logging.info("Reachy output volume set to %s via %s", level, url)
+                    return
+        except (error.HTTPError, error.URLError, TimeoutError, ValueError) as exc:
+            last_error = exc
+
+        raise RuntimeError(
+            f"Failed to set Reachy output volume via native daemon API; last_error={last_error}"
+        )

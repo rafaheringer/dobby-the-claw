@@ -13,7 +13,6 @@ def _env_flag(name: str, default: bool = False) -> bool:
         return False
     return default
 
-
 @dataclass(frozen=True)
 class BridgeConfig:
     llm_api_base: str
@@ -22,6 +21,7 @@ class BridgeConfig:
     realtime_transcription_model: str
     realtime_vad_silence_ms: int
     realtime_vad_prefix_padding_ms: int
+    reachy_output_volume: int
     stt_language: str
     reachy_bridge_url: str
     vision_debug_window: bool
@@ -41,6 +41,11 @@ class BridgeConfig:
     openclaw_ws_url: str
     openclaw_bearer_token: str
     openclaw_timeout_s: float
+    home_assistant_enabled: bool
+    home_assistant_ws_url: str
+    home_assistant_token: str
+    home_assistant_timeout_s: float
+    home_assistant_sensitive_domains: tuple[str, ...]
 
 
     @staticmethod
@@ -65,6 +70,7 @@ class BridgeConfig:
             realtime_vad_prefix_padding_ms=int(
                 os.getenv("REALTIME_VAD_PREFIX_PADDING_MS", "200")
             ),
+            reachy_output_volume=int(os.getenv("REACHY_OUTPUT_VOLUME", "-1")),
             stt_language=os.getenv("STT_LANGUAGE", "pt"),
             reachy_bridge_url=os.getenv("REACHY_BRIDGE_URL", "http://reachy-bridge:8001"),
             vision_debug_window=_env_flag("VISION_DEBUG_WINDOW", False),
@@ -94,4 +100,16 @@ class BridgeConfig:
             openclaw_ws_url=os.getenv("OPENCLAW_WS_URL", "ws://127.0.0.1:18789").strip(),
             openclaw_bearer_token=os.getenv("OPENCLAW_BEARER_TOKEN", "").strip(),
             openclaw_timeout_s=float(os.getenv("OPENCLAW_TIMEOUT_S", "45")),
+            home_assistant_enabled=_env_flag("HOME_ASSISTANT_ENABLED", False),
+            home_assistant_ws_url=os.getenv(
+                "HOME_ASSISTANT_WS_URL", "ws://127.0.0.1:8123/api/websocket"
+            ).strip(),
+            home_assistant_token=os.getenv("HOME_ASSISTANT_TOKEN", "").strip(),
+            home_assistant_timeout_s=float(os.getenv("HOME_ASSISTANT_TIMEOUT_S", "15")),
+            home_assistant_sensitive_domains=tuple(
+                domain.strip() for domain in os.getenv(
+                    "HOME_ASSISTANT_SENSITIVE_DOMAINS",
+                    "alarm_control_panel,lock,cover,security_system,button"
+                ).split(",") if domain.strip()
+            ),
         )

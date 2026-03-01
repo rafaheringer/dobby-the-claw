@@ -1,12 +1,13 @@
 # dobby-the-claw
 
-Bridge project for Reachy Mini + OpenAI Realtime + OpenClaw delegation.
+Bridge project for Reachy Mini + OpenAI Realtime + OpenClaw delegation + Home Assistant control.
 
 ## Overview
 
 - Runtime conversation brain: OpenAI Realtime API (live transcription + streamed assistant audio).
 - Physical embodiment: Reachy Mini (SDK path active with `REACHY_BRIDGE_URL=sdk`).
 - Delegation path: OpenClaw gateway tool for complex or longer-running tasks.
+- Home automation path: Home Assistant WebSocket tools for discovery and action execution.
 
 See behavior expectations in [docs/behavior-spec-v1.md](docs/behavior-spec-v1.md).
 
@@ -22,6 +23,7 @@ flowchart LR
     rt -->|Transcript + Assistant response| bridge[Bridge Runtime + State Machine]
     bridge -->|Tool calls| tools[Tool Runtime]
     tools -->|Delegation| oc[OpenClaw Gateway]
+    tools -->|Home control| ha[Home Assistant]
     bridge -->|Actions| reachy[Reachy SDK]
     reachy -->|Motion/Gestures/Audio| hw[Reachy Mini]
     hw -->|Speech| user
@@ -32,8 +34,14 @@ Key responsibilities:
 - Event-driven state transitions (`IDLE/LISTENING/THINKING/DELEGATING/EXECUTING/CONFIRMING/ERROR`).
 - Voice pipeline with OpenAI Realtime (input transcription + output audio) and interruptions.
 - Reachy motion/gesture orchestration through SDK client path.
-- Tool execution routing (`camera_snapshot`, `delegate_task`).
+- Tool execution routing (`camera_snapshot`, `delegate_task`, `discover_home_devices`, `control_home_device`).
 - Runtime instruction guardrails aggregated from tool metadata (`runtime_guardrail`).
+
+## Home Assistant Tools
+
+- `discover_home_devices`: lists entities and available services (optionally filtered by domain).
+- `control_home_device`: executes a device action (`domain.service`) on selected targets.
+- Sensitive domains require explicit confirmation via the `confirmed=true` argument.
 
 
 ## Quick Start (Docker)

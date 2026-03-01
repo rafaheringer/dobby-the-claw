@@ -82,6 +82,12 @@ def main() -> None:
     except Exception as exc:
         logging.warning("Failed to wake Reachy at startup: %s", exc)
 
+    if config.reachy_output_volume >= 0:
+        try:
+            runtime.reachy.set_output_volume(config.reachy_output_volume)
+        except Exception as exc:
+            logging.warning("Failed to set native Reachy output volume: %s", exc)
+
     if runtime.camera_worker is not None:
         runtime.camera_worker.set_head_tracking_enabled(start_with_headtracking)
 

@@ -1,6 +1,6 @@
 # Architecture
 
-This document captures the current runtime architecture for Reachy Mini + Bridge + OpenAI Realtime + OpenClaw delegation.
+This document captures the current runtime architecture for Reachy Mini + Bridge + OpenAI Realtime + OpenClaw delegation + Home Assistant control.
 
 ## Goals
 
@@ -8,6 +8,7 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 - Use OpenAI Realtime for low-latency voice IO and assistant generation.
 - Use Reachy Mini as embodiment (motion + speaker + mic via SDK).
 - Delegate complex/long-running tasks to OpenClaw through a tool call.
+- Control home devices through Home Assistant tool calls.
 
 ## Components
 
@@ -15,13 +16,14 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 - Bridge Runtime (Python): state machine, orchestration, tool routing, wakeword/idle logic.
 - Reachy SDK (active path): motion, gestures, camera/audio media.
 - OpenClaw Gateway (WebSocket): delegated task execution.
+- Home Assistant (WebSocket API): entity discovery and service execution.
 
 ## Runtime Core Boundaries
 
 - `src/bridge/runtime/orchestrator.py`: application service orchestrating sessions, state, media and tools.
 - `src/bridge/runtime/ports.py`: abstractions for sessions, robot actions, tools and media.
 - `src/bridge/runtime/adapters/`: concrete adapters (`realtime_session`, `reachy_actions`, `reachy_media`, `tool_runtime`, `openclaw_gateway`).
-- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `delegate_task`).
+- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `delegate_task`, Home Assistant tools).
 - `ToolDefinition.runtime_guardrail`: optional per-tool runtime policy text aggregated by tool runtime and appended to session instructions.
 
 ## Data Flow (Simplified)
@@ -34,8 +36,12 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
    - Bridge enters `DELEGATING` and triggers waiting gesture.
    - Tool calls OpenClaw Gateway over WebSocket RPC (`connect.challenge` + `connect`, then `chat.send`/`chat.history`) and waits for final text.
    - Tool result returns to Realtime function output.
-5. Realtime model produces final user-facing response (can paraphrase OpenClaw output).
-6. Assistant audio is streamed to Reachy speaker.
+5. If Home Assistant tools are called:
+   - `discover_home_devices` fetches entities (`get_states`) and service schemas (`get_services`).
+   - `control_home_device` performs `call_service` for the selected target.
+   - Sensitive domains require explicit confirmation via tool argument.
+6. Realtime model produces final user-facing response.
+7. Assistant audio is streamed to Reachy speaker.
 
 ## State Machine
 
@@ -51,12 +57,6 @@ Important transitions:
 
 Primary runtime configuration comes from `.env` via `BridgeConfig.from_env()`.
 
-OpenClaw-specific values:
-
-- `OPENCLAW_ENABLED`
-- `OPENCLAW_WS_URL`
-- `OPENCLAW_BEARER_TOKEN`
-- `OPENCLAW_TIMEOUT_S`
 
 ## Implementation Status
 
