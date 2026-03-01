@@ -69,7 +69,9 @@ class RuntimeOrchestrator:
         self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
         self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
-        self.tool_runtime = tool_runtime or build_tool_runtime(config, camera_worker)
+        self.tool_runtime = tool_runtime or build_tool_runtime(
+            config, camera_worker, motion_manager
+        )
 
         if media_io is None:
             require_sdk_instance(mode_name, reachy_sdk_instance)

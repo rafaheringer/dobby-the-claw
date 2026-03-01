@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from bridge.config import BridgeConfig
 from reachy.camera_worker import CameraWorker
+from reachy.motion import MotionManager
 
 from bridge.runtime.audio_support import build_tool_registry
 from bridge.runtime.ports import ToolRuntimePort
@@ -31,6 +32,10 @@ class ToolRegistryRuntime(ToolRuntimePort):
         return self._registry.execute(name, arguments)
 
 
-def build_tool_runtime(config: BridgeConfig, camera_worker: Optional[CameraWorker]) -> ToolRuntimePort:
+def build_tool_runtime(
+    config: BridgeConfig,
+    camera_worker: Optional[CameraWorker],
+    motion_manager: Optional[MotionManager],
+) -> ToolRuntimePort:
     """Build default tool runtime adapter from runtime config."""
-    return ToolRegistryRuntime(build_tool_registry(config, camera_worker))
+    return ToolRegistryRuntime(build_tool_registry(config, camera_worker, motion_manager))
