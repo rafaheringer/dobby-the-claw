@@ -21,6 +21,7 @@ OPENCLAW_SCOPES = ["operator.admin"]
 
 @dataclass(frozen=True)
 class OpenClawGatewayConfig:
+    """Connection parameters for the OpenClaw Gateway websocket client."""
     ws_url: str
     bearer_token: str
     timeout_s: float
@@ -31,6 +32,7 @@ class OpenClawGatewayClient:
     """Websocket-only RPC client to delegate tasks to OpenClaw Gateway."""
 
     def __init__(self, config: OpenClawGatewayConfig) -> None:
+        """Initialize the gateway client with static connection configuration."""
         self._config = config
 
     def delegate(
@@ -41,6 +43,7 @@ class OpenClawGatewayClient:
         session_id: str | None = None,
         language: str | None = None,
     ) -> str:
+        """Delegate a task synchronously through the OpenClaw Gateway."""
         return asyncio.run(
             self._delegate_async(
                 task=task,
@@ -58,6 +61,7 @@ class OpenClawGatewayClient:
         session_id: str | None,
         language: str | None,
     ) -> str:
+        """Send task/context to gateway and wait for assistant text completion."""
         session_key = (session_id or "agent:main:main").strip() or "agent:main:main"
         prompt = task.strip()
         if context.strip():
@@ -107,6 +111,7 @@ class OpenClawGatewayClient:
             raise TimeoutError("Timed out waiting for OpenClaw response")
 
     async def _perform_connect_handshake(self, connection: Any) -> None:
+        """Complete gateway connect challenge and protocol handshake."""
         _ = await self._wait_for_connect_challenge(connection)
         connect_params = {
             "minProtocol": OPENCLAW_PROTOCOL_VERSION,
@@ -139,6 +144,7 @@ class OpenClawGatewayClient:
         )
 
     async def _wait_for_connect_challenge(self, connection: Any) -> str:
+        """Wait for and validate the initial `connect.challenge` event."""
         deadline = time.monotonic() + min(self._config.timeout_s, 10.0)
         while True:
             remaining = deadline - time.monotonic()
@@ -167,6 +173,7 @@ class OpenClawGatewayClient:
         params: dict[str, Any],
         expect_final: bool,
     ) -> Any:
+        """Send one RPC request frame and return the validated response payload."""
         request_id = str(uuid.uuid4())
         frame = {
             "type": "req",
@@ -207,6 +214,7 @@ class OpenClawGatewayClient:
 
     @staticmethod
     async def _recv_frame(connection: Any, *, timeout_s: float) -> dict[str, Any]:
+        """Receive one gateway frame and parse it as a JSON object."""
         raw = await asyncio.wait_for(connection.recv(), timeout=timeout_s)
         if not isinstance(raw, str):
             raise RuntimeError("OpenClaw frame is not text")
@@ -220,6 +228,7 @@ class OpenClawGatewayClient:
 
     @staticmethod
     def _extract_latest_assistant_text(*, history: dict[str, Any], min_timestamp_ms: int) -> str:
+        """Extract newest assistant text blocks from chat history payload."""
         messages = history.get("messages")
         if not isinstance(messages, list):
             return ""

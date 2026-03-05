@@ -33,6 +33,7 @@ class OfflineWakewordDetector:
         calibration_seconds: float = 6.0,
         calibration_multiplier: float = 2.8,
     ) -> None:
+        """Configure local wakeword and fallback speech-energy detection."""
         self.enabled = bool(enabled)
         self.aliases = tuple(a.strip().lower() for a in aliases if a.strip())
         self.threshold = float(threshold)
@@ -82,6 +83,7 @@ class OfflineWakewordDetector:
         )
 
     def _try_init_openwakeword(self) -> None:
+        """Try loading openWakeWord backend and mark availability state."""
         try:
             model_module = importlib.import_module("openwakeword.model")
             model_cls = getattr(model_module, "Model")
@@ -94,6 +96,7 @@ class OfflineWakewordDetector:
             logger.warning("Offline wakeword: openWakeWord unavailable (%s)", exc)
 
     def reset(self) -> None:
+        """Reset rolling audio and fallback counters."""
         self._buffer = np.array([], dtype=np.int16)
         self._speech_hits = 0
 
@@ -161,6 +164,7 @@ class OfflineWakewordDetector:
             self._finalize_calibration()
 
     def _finalize_calibration(self) -> None:
+        """Finalize calibration window and update fallback RMS threshold."""
         if self._calibration_finalized:
             return
         self._calibration_finalized = True
@@ -196,6 +200,7 @@ class OfflineWakewordDetector:
         )
 
     def _frame_is_wake(self, frame: np.ndarray) -> bool:
+        """Return True when a frame triggers wakeword or fallback detector."""
         now = time.monotonic()
         if (now - self._last_trigger_ts) < self.cooldown_s:
             return False

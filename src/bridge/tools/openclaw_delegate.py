@@ -1,3 +1,5 @@
+"""Tool that delegates requests to the external OpenClaw gateway."""
+
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -7,11 +9,15 @@ from bridge.tools.contracts import ToolDefinition, ToolExecutionResult
 
 
 class OpenClawDelegateTool:
+    """Expose OpenClaw task delegation as a runtime tool."""
+
     def __init__(self, client: OpenClawGatewayClient, default_language: str) -> None:
+        """Initialize delegation tool with gateway client and default language."""
         self._client = client
         self._default_language = default_language
 
     def definition(self) -> ToolDefinition:
+        """Return OpenAI function schema and guardrails for delegation."""
         return ToolDefinition(
             name="delegate_task",
             description=(
@@ -51,6 +57,7 @@ class OpenClawDelegateTool:
         )
 
     def execute(self, arguments: Dict[str, Any]) -> ToolExecutionResult:
+        """Delegate task/context to OpenClaw and return normalized result."""
         task = str(arguments.get("task", "")).strip()
         if not task:
             return ToolExecutionResult(

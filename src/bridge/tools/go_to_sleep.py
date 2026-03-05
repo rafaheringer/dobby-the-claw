@@ -1,3 +1,5 @@
+"""Tool that requests runtime sleep mode with wakeword resume."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable
@@ -6,13 +8,17 @@ from bridge.tools.contracts import ToolDefinition, ToolExecutionResult
 
 
 class GoToSleepTool:
+    """Validate sleep requests and expose wakeword context to the assistant."""
+
     def __init__(self, *, wakeword_enabled: bool, wakeword_aliases: Iterable[str]) -> None:
+        """Initialize sleep tool with wakeword availability settings."""
         self._wakeword_enabled = bool(wakeword_enabled)
         self._wakeword_aliases = tuple(
             alias.strip() for alias in wakeword_aliases if str(alias).strip()
         )
 
     def definition(self) -> ToolDefinition:
+        """Return OpenAI function schema for sleep-mode requests."""
         return ToolDefinition(
             name="go_to_sleep",
             description=(
@@ -30,6 +36,7 @@ class GoToSleepTool:
         )
 
     def execute(self, arguments: Dict[str, Any]) -> ToolExecutionResult:
+        """Return acceptance when wakeword support allows entering sleep mode."""
         if not self._wakeword_enabled:
             return ToolExecutionResult(
                 output={

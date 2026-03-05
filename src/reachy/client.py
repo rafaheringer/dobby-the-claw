@@ -1,3 +1,5 @@
+"""Reachy action client with SDK-backed execution helpers."""
+
 from typing import Any
 import logging
 import time
@@ -21,7 +23,10 @@ from reachy.results import ReachyActionResult
 
 
 class ReachyClient:
+    """Execute typed Reachy actions via SDK integration path."""
+
     def __init__(self, base_url: str) -> None:
+        """Initialize client and detect whether SDK mode is enabled."""
         self.base_url = base_url
         self._use_sdk = base_url.strip().lower().startswith("sdk")
         self._reachy_mini = None
@@ -35,6 +40,7 @@ class ReachyClient:
                 self._reachy_mini = None
 
     def execute_typed_action(self, action: ReachyAction) -> ReachyActionResult:
+        """Execute a typed Reachy action and return normalized result."""
         if self._use_sdk:
             if self._reachy_mini is None:
                 raise RuntimeError("Reachy Mini SDK not available")
@@ -43,6 +49,7 @@ class ReachyClient:
         raise NotImplementedError("Reachy client not implemented yet")
 
     def _execute_typed_action_sdk(self, action: ReachyAction) -> ReachyActionResult:
+        """Dispatch typed action to specific SDK execution helper."""
         if isinstance(action, (AntennaWaveGestureAction, ThinkGestureAction, ListeningGestureAction)):
             return self._run_antenna_gesture_sdk(
                 amplitude_rad=float(action.amplitude_rad),
@@ -63,6 +70,7 @@ class ReachyClient:
         return ReachyActionResult(ok=False, message=f"Unsupported typed action: {type(action).__name__}")
 
     def _run_antenna_gesture_sdk(self, amplitude_rad: float, duration_s: float) -> ReachyActionResult:
+        """Run a symmetric antenna gesture and restore initial position."""
         mini = self.get_sdk_instance()
         start = mini.get_present_antenna_joint_positions()
         mini.set_target_antenna_joint_positions([amplitude_rad, -amplitude_rad])
@@ -72,17 +80,20 @@ class ReachyClient:
         return ReachyActionResult(ok=True, message="Antenna gesture complete")
 
     def _run_move_head_sdk(self, yaw: float, pitch: float, roll: float) -> ReachyActionResult:
+        """Set Reachy head pose target from yaw/pitch/roll angles."""
         mini = self.get_sdk_instance()
         pose = create_head_pose(roll=roll, pitch=pitch, yaw=yaw, degrees=True)
         mini.set_target_head_pose(pose)
         return ReachyActionResult(ok=True, message="Head target set")
 
     def _run_look_at_sdk(self, u: int, v: int, duration_s: float) -> ReachyActionResult:
+        """Execute gaze look-at command using image coordinates."""
         mini = self.get_sdk_instance()
         mini.look_at_image(u, v, duration=duration_s, perform_movement=True)
         return ReachyActionResult(ok=True, message="Look-at completed")
 
     def _run_antenna_cycles_sdk(self, amplitude_rad: float, cycles: int, duration_s: float) -> ReachyActionResult:
+        """Run alternating antenna cycles and restore initial position."""
         mini = self.get_sdk_instance()
         start = mini.get_present_antenna_joint_positions()
         for index in range(max(cycles, 1)):
@@ -93,6 +104,7 @@ class ReachyClient:
         return ReachyActionResult(ok=True, message="Antenna gesture complete")
 
     def _run_camera_snapshot_sdk(self) -> ReachyActionResult:
+        """Capture camera frame and save it to a temporary JPEG file."""
         mini = self.get_sdk_instance()
         frame = mini.media.get_frame()
         if frame is None:
@@ -107,6 +119,7 @@ class ReachyClient:
         return ReachyActionResult(ok=True, message="Snapshot saved", path=path)
 
     def get_sdk_instance(self):
+        """Lazily create and return singleton Reachy SDK instance."""
         if not self._use_sdk or self._reachy_mini is None:
             raise RuntimeError("Reachy Mini SDK not available")
         if self._sdk_instance is None:
@@ -114,6 +127,7 @@ class ReachyClient:
         return self._sdk_instance
 
     def wake_up(self) -> None:
+        """Wake Reachy if SDK exposes wake capability."""
         if not self._use_sdk:
             logging.warning("Reachy wake_up ignored: non-SDK client path is not implemented")
             return
@@ -129,6 +143,7 @@ class ReachyClient:
         raise RuntimeError("Reachy SDK instance does not expose wake_up/wake")
 
     def goto_sleep(self) -> None:
+        """Put Reachy in sleep posture if supported by SDK."""
         if not self._use_sdk:
             logging.warning("Reachy goto_sleep ignored: non-SDK client path is not implemented")
             return
@@ -144,6 +159,7 @@ class ReachyClient:
         raise RuntimeError("Reachy SDK instance does not expose goto_sleep/sleep")
 
     def set_output_volume(self, volume: int) -> None:
+        """Set Reachy speaker output volume on Linux via `amixer`."""
         if not self._use_sdk:
             logging.warning("Reachy set_output_volume ignored: non-SDK client path is not implemented")
             return
@@ -176,6 +192,7 @@ class ReachyClient:
             raise RuntimeError(f"Failed to set Reachy output volume via amixer: {exc}") from exc
 
     def _get_linux_audio_card_name(self) -> str:
+        """Best-effort detection of ALSA card name for Reachy output."""
         try:
             result = subprocess.run(
                 ["aplay", "-l"],

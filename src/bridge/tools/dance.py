@@ -1,3 +1,5 @@
+"""Dance tool integration backed by the Reachy dance move library."""
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +26,7 @@ except Exception as exc:
 
 
 def _build_move_description(available_moves: Dict[str, Any]) -> str:
+    """Build user-facing move description text for tool parameters."""
     lines = ["Name of the move; use 'random' or omit for random."]
     if not available_moves:
         return " ".join(lines)
@@ -43,6 +46,7 @@ class DanceQueueMove(Move):
     """Wrapper to adapt library DanceMove to the motion queue protocol."""
 
     def __init__(self, move_name: str) -> None:
+        """Create a queued dance move wrapper for a named library move."""
         if not DANCE_AVAILABLE or DanceMove is None:
             raise RuntimeError("Dance library not available")
         self._move_name = move_name
@@ -51,11 +55,13 @@ class DanceQueueMove(Move):
 
     @property
     def duration(self) -> float:
+        """Return configured dance move duration in seconds."""
         return float(self._dance_move.duration)
 
     def evaluate(
         self, t: float
     ) -> tuple[np.ndarray | None, np.ndarray | None, float | None]:
+        """Evaluate move pose and antenna/body outputs at timestamp `t`."""
         try:
             head_pose, antennas, body_yaw = self._dance_move.evaluate(t)
             if isinstance(antennas, tuple):
@@ -77,6 +83,7 @@ class DanceTool:
     """Queue a dance move from the Reachy Mini dance library."""
 
     def __init__(self, motion_manager: MotionManager) -> None:
+        """Initialize dance tool with a motion manager queue target."""
         self._motion_manager = motion_manager
         self._available_moves = dict(AVAILABLE_MOVES)
         self._move_names = sorted(self._available_moves.keys())
@@ -84,6 +91,7 @@ class DanceTool:
         self._move_enum = ["random", *self._move_names] if self._move_names else ["random"]
 
     def definition(self) -> ToolDefinition:
+        """Return OpenAI function schema for dance selection and repetition."""
         parameters = {
             "type": "object",
             "properties": {
@@ -107,6 +115,7 @@ class DanceTool:
         )
 
     def execute(self, arguments: Dict[str, Any]) -> ToolExecutionResult:
+        """Validate inputs and enqueue requested dance moves non-blockingly."""
         if not DANCE_AVAILABLE:
             return ToolExecutionResult(
                 output={

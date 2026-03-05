@@ -1,3 +1,5 @@
+"""Tool for discovering Home Assistant entities and service capabilities."""
+
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -7,10 +9,14 @@ from homeassistant.home_assistant_client import HomeAssistantWsClient
 
 
 class HomeAssistantDiscoverTool:
+    """Expose Home Assistant discovery as an assistant callable tool."""
+
     def __init__(self, client: HomeAssistantWsClient) -> None:
+        """Store Home Assistant websocket client for discovery calls."""
         self._client = client
 
     def definition(self) -> ToolDefinition:
+        """Return OpenAI function schema for capability discovery."""
         return ToolDefinition(
             name="discover_home_devices",
             description=(
@@ -49,6 +55,7 @@ class HomeAssistantDiscoverTool:
         )
 
     def execute(self, arguments: Dict[str, Any]) -> ToolExecutionResult:
+        """Discover entities/services with optional domain and payload controls."""
         domains_raw = arguments.get("domains")
         domains: list[str] = []
         if isinstance(domains_raw, list):

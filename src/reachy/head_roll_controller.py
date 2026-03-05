@@ -1,3 +1,5 @@
+"""Head roll smoothing controller driven by observed tilt angles."""
+
 from __future__ import annotations
 
 import time
@@ -9,6 +11,7 @@ class HeadRollController:
     """Simple, robust tilt->roll controller with strong neutral lock."""
 
     def __init__(self) -> None:
+        """Initialize filter gains, hysteresis thresholds, and state memory."""
         self._gain = 1.25
         self._max_roll_rad = np.deg2rad(18.0)
         self._smoothing_alpha = 0.20
@@ -34,6 +37,7 @@ class HeadRollController:
         self._last_update_ts = time.time()
 
     def reset(self) -> None:
+        """Reset controller state to neutral-locked defaults."""
         self._neutral_locked = True
         self._smoothed_roll_rad = 0.0
         self._bias_rad = 0.0
@@ -44,17 +48,21 @@ class HeadRollController:
 
     @property
     def last_filtered_tilt_rad(self) -> float:
+        """Return latest centered tilt estimate in radians."""
         return float(self._last_filtered_tilt_rad)
 
     @property
     def bias_rad(self) -> float:
+        """Return adaptive tilt bias estimate in radians."""
         return float(self._bias_rad)
 
     @property
     def is_neutral_locked(self) -> bool:
+        """Return whether output is currently locked to neutral roll."""
         return bool(self._neutral_locked)
 
     def update(self, raw_tilt_rad: float, now: float | None = None) -> float:
+        """Update controller with a tilt sample and return smoothed roll output."""
         ts = time.time() if now is None else float(now)
         dt = max(1e-3, ts - self._last_update_ts)
         self._last_update_ts = ts

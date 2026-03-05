@@ -1,3 +1,5 @@
+"""Async Home Assistant websocket client with synchronous helper entrypoints."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,13 +12,17 @@ import websockets
 
 @dataclass(frozen=True)
 class HomeAssistantWsConfig:
+    """Connection settings for the Home Assistant websocket API."""
     ws_url: str
     access_token: str
     timeout_s: float
 
 
 class HomeAssistantWsClient:
+    """High-level Home Assistant websocket client for discovery and control."""
+
     def __init__(self, config: HomeAssistantWsConfig) -> None:
+        """Store immutable websocket connection configuration."""
         self._config = config
 
     def discover_capabilities(
@@ -27,6 +33,7 @@ class HomeAssistantWsClient:
         include_services: bool,
         max_entities: int,
     ) -> dict[str, Any]:
+        """Synchronously discover entities and optional domain services."""
         return asyncio.run(
             self._discover_capabilities_async(
                 domains=domains,
@@ -45,6 +52,7 @@ class HomeAssistantWsClient:
         service_data: dict[str, Any],
         return_response: bool,
     ) -> dict[str, Any]:
+        """Synchronously call one Home Assistant domain service."""
         return asyncio.run(
             self._call_service_async(
                 domain=domain,
@@ -63,6 +71,7 @@ class HomeAssistantWsClient:
         include_services: bool,
         max_entities: int,
     ) -> dict[str, Any]:
+        """Fetch states/services and build filtered discovery payload."""
         async with self._connect() as connection:
             response_states = await self._send_command(connection, {"type": "get_states"})
             states = response_states.get("result")
@@ -128,6 +137,7 @@ class HomeAssistantWsClient:
         service_data: dict[str, Any],
         return_response: bool,
     ) -> dict[str, Any]:
+        """Execute one `call_service` command and normalize response shape."""
         async with self._connect() as connection:
             command: dict[str, Any] = {
                 "type": "call_service",
@@ -150,9 +160,11 @@ class HomeAssistantWsClient:
             return {"result": result}
 
     def _connect(self) -> "_WsSession":
+        """Create a websocket session context manager for this configuration."""
         return _WsSession(self._config)
 
     async def _send_command(self, connection: Any, command: dict[str, Any]) -> dict[str, Any]:
+        """Send one command frame and return validated result response."""
         request_id = await connection.next_id()
         payload = {"id": request_id, **command}
         await connection.send(payload)
@@ -169,12 +181,16 @@ class HomeAssistantWsClient:
 
 
 class _WsSession:
+    """Context-managed low-level websocket session for Home Assistant RPC."""
+
     def __init__(self, config: HomeAssistantWsConfig) -> None:
+        """Initialize session state and request-id counter."""
         self._config = config
         self._connection: Any | None = None
         self._next_request_id = 1
 
     async def __aenter__(self) -> "_WsSession":
+        """Open websocket connection and complete authentication handshake."""
         self._connection = await websockets.connect(
             self._config.ws_url,
             open_timeout=self._config.timeout_s,
@@ -186,21 +202,25 @@ class _WsSession:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        """Close websocket connection when leaving context manager."""
         if self._connection is not None:
             await self._connection.close()
             self._connection = None
 
     async def next_id(self) -> int:
+        """Return next monotonically increasing request identifier."""
         request_id = self._next_request_id
         self._next_request_id += 1
         return request_id
 
     async def send(self, payload: dict[str, Any]) -> None:
+        """Send one JSON payload over the active websocket connection."""
         if self._connection is None:
             raise RuntimeError("Home Assistant websocket is not connected")
         await self._connection.send(json.dumps(payload))
 
     async def wait_response(self, request_id: int) -> dict[str, Any]:
+        """Wait until a matching `result` frame is received for request id."""
         deadline = asyncio.get_running_loop().time() + self._config.timeout_s
         while True:
             remaining = deadline - asyncio.get_running_loop().time()
@@ -216,6 +236,7 @@ class _WsSession:
                 return frame
 
     async def _perform_auth(self) -> None:
+        """Authenticate websocket connection using long-lived access token."""
         first = await self._recv(timeout_s=min(self._config.timeout_s, 10.0))
         if str(first.get("type", "")).strip().lower() != "auth_required":
             raise RuntimeError("Home Assistant websocket auth_required not received")
@@ -229,6 +250,7 @@ class _WsSession:
             raise RuntimeError(message)
 
     async def _recv(self, *, timeout_s: float) -> dict[str, Any]:
+        """Receive and parse one websocket frame as a JSON object."""
         if self._connection is None:
             raise RuntimeError("Home Assistant websocket is not connected")
         raw = await asyncio.wait_for(self._connection.recv(), timeout=timeout_s)

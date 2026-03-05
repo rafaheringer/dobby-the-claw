@@ -14,6 +14,7 @@ class OpenAIRealtimeSessionFactory(ConversationSessionFactoryPort):
     """Build conversation sessions using the current OpenAI Realtime client."""
 
     def __init__(self, config: BridgeConfig) -> None:
+        """Store bridge configuration for creating realtime sessions."""
         self._config = config
 
     def create(
@@ -25,6 +26,7 @@ class OpenAIRealtimeSessionFactory(ConversationSessionFactoryPort):
         on_tool_call: Callable[[str, dict[str, Any]], Any],
         callbacks: ConversationCallbacks,
     ) -> ConversationSessionPort:
+        """Create a configured OpenAI Realtime session adapter instance."""
         return build_realtime_session(
             api_key=api_key,
             config=self._config,

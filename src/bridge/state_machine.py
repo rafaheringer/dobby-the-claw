@@ -1,9 +1,12 @@
+"""Finite-state machine definitions for bridge conversation lifecycle."""
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
 
 class State(str, Enum):
+    """Runtime states for wake/listen/think/execute flows."""
     IDLE = "IDLE"
     LISTENING = "LISTENING"
     THINKING = "THINKING"
@@ -14,6 +17,7 @@ class State(str, Enum):
 
 
 class Event(str, Enum):
+    """Events that drive state transitions."""
     WAKE_WORD = "WAKE_WORD"
     STT_RECEIVED = "STT_RECEIVED"
     DELEGATION_STARTED = "DELEGATION_STARTED"
@@ -29,16 +33,21 @@ class Event(str, Enum):
 
 @dataclass
 class Transition:
+    """Transition record describing origin, target, and event."""
     from_state: State
     to_state: State
     event: Event
 
 
 class StateMachine:
+    """Deterministic finite-state machine for runtime interaction states."""
+
     def __init__(self) -> None:
+        """Initialize the state machine in IDLE state."""
         self.state = State.IDLE
 
     def transition(self, event: Event) -> State:
+        """Apply one event and return the resulting state."""
         if event == Event.RESET:
             self.state = State.IDLE
             return self.state

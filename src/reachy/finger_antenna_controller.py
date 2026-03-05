@@ -22,12 +22,12 @@ except ImportError:  # pragma: no cover - optional dependency
 
 try:
     import mediapipe as mp
+    from mediapipe.python.solutions import hands as mp_hands
 except ImportError:  # pragma: no cover - optional dependency
     mp = None
-
+    mp_hands = None
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass(frozen=True)
 class FingerAntennaControl:
@@ -49,6 +49,7 @@ class FingerAntennaController:
         smoothing_alpha: float = 1.0,
         deadband_deg: float = 0.0,
     ) -> None:
+        """Initialize finger tracking thresholds, smoothing, and backend state."""
         self._enabled = bool(enabled and mp is not None and cv2 is not None)
         self._max_angle_rad = float(np.deg2rad(max_angle_deg))
         self._hold_time_s = float(max(0.0, hold_time_s))
@@ -145,8 +146,6 @@ class FingerAntennaController:
             return
 
         try:
-            from mediapipe.python.solutions import hands as mp_hands
-
             self._hands = mp_hands.Hands(
                 static_image_mode=False,
                 model_complexity=0,

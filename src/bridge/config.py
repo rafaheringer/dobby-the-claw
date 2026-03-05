@@ -1,8 +1,11 @@
+"""Runtime configuration loading from environment variables."""
+
 from dataclasses import dataclass
 import os
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse a boolean environment variable with a fallback default."""
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -15,6 +18,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class BridgeConfig:
+    """Immutable runtime configuration for bridge services and features."""
     llm_api_base: str
     llm_api_key_env: str
     realtime_model: str
@@ -52,6 +56,7 @@ class BridgeConfig:
 
     @staticmethod
     def from_env() -> "BridgeConfig":
+        """Build bridge configuration from process environment variables."""
         aliases_raw = os.getenv("OFFLINE_WAKEWORD_ALIASES", "reachy,dobby")
         aliases = tuple(
             alias.strip().lower()

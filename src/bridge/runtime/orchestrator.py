@@ -58,6 +58,7 @@ class RuntimeOrchestrator:
         tool_runtime: ToolRuntimePort | None = None,
         media_io: MediaIOPort | None = None,
     ) -> None:
+        """Initialize shared runtime dependencies and orchestration state."""
         self.mode_name = mode_name
         self.state_machine = state_machine
         self.motion_manager = motion_manager
@@ -211,12 +212,15 @@ class RuntimeOrchestrator:
                 self.camera_worker.stop()
 
     def _elapsed_ms(self) -> int:
+        """Return elapsed orchestrator runtime in milliseconds."""
         return int((time.monotonic() - self.loop_start) * 1000)
 
     def _mark_user_activity(self) -> None:
+        """Record the latest user activity timestamp for idle-sleep logic."""
         self.last_user_activity = time.monotonic()
 
     def _on_speech_start(self) -> None:
+        """Handle speech-start callback from conversation session."""
         logging.debug("[%dms] Callback speech_start", self._elapsed_ms())
         self._mark_user_activity()
         self.audio_queue.put(("force_stop", None))
@@ -227,6 +231,7 @@ class RuntimeOrchestrator:
             logging.warning("[%dms] gesture.listening failed: %s", self._elapsed_ms(), exc)
 
     def _on_user_text(self, text: str, *, source: str) -> None:
+        """Handle recognized or typed user text and trigger think gesture."""
         self._mark_user_activity()
         logging.info("[%dms] User %s: %s", self._elapsed_ms(), source, text)
         try:
@@ -236,16 +241,20 @@ class RuntimeOrchestrator:
             logging.warning("[%dms] gesture.think failed: %s", self._elapsed_ms(), exc)
 
     def _on_assistant_text(self, text: str) -> None:
+        """Log assistant text responses emitted by realtime session."""
         logging.info("[%dms] Assistant text: %s", self._elapsed_ms(), text)
 
     def _on_assistant_audio_chunk(self, chunk) -> None:
+        """Queue one streamed assistant audio chunk for playback."""
         self.audio_queue.put(("chunk", chunk))
 
     def _on_assistant_audio_done(self) -> None:
+        """Queue assistant audio completion marker."""
         logging.debug("[%dms] Assistant audio done queued", self._elapsed_ms())
         self.audio_queue.put(("done", None))
 
     def _on_error(self, message: str) -> None:
+        """Handle realtime errors and schedule transparent recovery messaging."""
         logging.warning("[%dms] Realtime error: %s", self._elapsed_ms(), message)
         self.realtime_last_error_message = message.strip()
         self.realtime_recovery_requested = True
@@ -255,6 +264,7 @@ class RuntimeOrchestrator:
         )
 
     def _should_recover_realtime(self, now: float) -> bool:
+        """Determine whether realtime session recovery should be attempted."""
         if self.sleeping or self.realtime is None:
             return False
         if now < self.realtime_next_recovery_at:
@@ -267,6 +277,7 @@ class RuntimeOrchestrator:
             return True
 
     def _recover_realtime_session(self, now: float) -> None:
+        """Recreate realtime session after connection or runtime failure."""
         self.realtime_next_recovery_at = now + 2.0
         logging.info("[%dms] Attempting realtime session recovery", self._elapsed_ms())
 
@@ -294,6 +305,7 @@ class RuntimeOrchestrator:
                 logging.warning("[%dms] Failed to send post-recovery notice", self._elapsed_ms())
 
     def _build_runtime_identity_prompt(self, identity_prompt: str) -> str:
+        """Append runtime tool guardrails to the base identity prompt."""
         tool_guardrails = [item.strip() for item in self.tool_runtime.runtime_guardrails() if item.strip()]
         if not tool_guardrails:
             return identity_prompt
@@ -306,6 +318,7 @@ class RuntimeOrchestrator:
         return f"{identity_prompt.rstrip()}{runtime_guardrails}\n"
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        """Execute one tool call and apply delegation/sleep side effects."""
         is_openclaw_delegate = name == "delegate_task"
         if is_openclaw_delegate:
             logging.info("[%dms] Delegating task to Open Claw", self._elapsed_ms())
@@ -327,6 +340,7 @@ class RuntimeOrchestrator:
                 apply_event(self.state_machine, Event.DELEGATION_DONE, self.motion_manager)
 
     def _start_active_session(self) -> None:
+        """Create and start the active realtime session for the current mode."""
         callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
             on_user_transcript=(
@@ -365,6 +379,7 @@ class RuntimeOrchestrator:
         self.wakeword.start_auto_calibration()
 
     def _enter_sleep_mode(self) -> None:
+        """Stop active session and place runtime into wakeword-only sleep mode."""
         if self.sleeping:
             return
 
@@ -412,6 +427,7 @@ class RuntimeOrchestrator:
         self.wakeword.reset()
 
     def _queue_sleep_request(self) -> None:
+        """Request entering sleep mode after the current response is completed."""
         if self.sleeping:
             logging.info("[%dms] Sleep request ignored; already sleeping", self._elapsed_ms())
             return
@@ -421,6 +437,7 @@ class RuntimeOrchestrator:
         self.sleep_after_response.set()
 
     def _wake_from_sleep_mode(self) -> None:
+        """Wake runtime from sleep mode and restore active realtime session."""
         logging.info("[%dms] Offline wakeword detected, waking up", self._elapsed_ms())
 
         if self.recording_started:
@@ -445,6 +462,7 @@ class RuntimeOrchestrator:
         self.sleeping = False
 
     def _drain_text_queue(self) -> bool:
+        """Process queued chat text inputs and return True when exit requested."""
         while True:
             try:
                 user_text = self.text_queue.get_nowait()
@@ -478,6 +496,7 @@ class RuntimeOrchestrator:
             self.text_turns += 1
 
     def _input_worker(self) -> None:
+        """Read stdin lines in chat mode and enqueue them for processing."""
         while not self.input_stop.is_set():
             try:
                 line = input("You> ")
@@ -490,6 +509,7 @@ class RuntimeOrchestrator:
             self.text_queue.put(line)
 
     def _log_mode_start(self) -> None:
+        """Log startup context for chat or realtime mode."""
         if self.interactive_text:
             logging.info(
                 "Chat mode active model=%s transcribe=%s out_sr=%s tools=%s idle_sleep=%s",

@@ -51,6 +51,7 @@ class OpenAIRealtimeSession:
         tool_specs: Optional[List[Dict[str, Any]]] = None,
         on_tool_call: Optional[Callable[[str, Dict[str, Any]], ToolExecutionResult]] = None,
     ) -> None:
+        """Initialize realtime session config, callbacks, and runtime state."""
         self.api_key = api_key
         self.api_base = api_base.rstrip("/")
         self.model = model
@@ -182,9 +183,11 @@ class OpenAIRealtimeSession:
         await self._connection.response.create(response={})
 
     def _run_thread(self) -> None:
+        """Run the asyncio realtime loop inside the worker thread."""
         asyncio.run(self._run())
 
     async def _run(self) -> None:
+        """Connect to OpenAI Realtime API and process streaming events."""
         self._loop = asyncio.get_running_loop()
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.api_base)
         logger.info(

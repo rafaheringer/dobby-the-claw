@@ -1,3 +1,5 @@
+"""Tool exports used by runtime composition and adapters."""
+
 from bridge.tools.camera_snapshot import CameraSnapshotTool
 from bridge.tools.contracts import ToolExecutionResult
 from bridge.tools.dance import DanceTool

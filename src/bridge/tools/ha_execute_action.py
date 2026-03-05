@@ -1,3 +1,5 @@
+"""Tool for executing Home Assistant service calls with safety checks."""
+
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -7,16 +9,20 @@ from homeassistant.home_assistant_client import HomeAssistantWsClient
 
 
 class HomeAssistantExecuteActionTool:
+    """Execute domain/service actions against Home Assistant entities."""
+
     def __init__(
         self,
         client: HomeAssistantWsClient,
         *,
         sensitive_domains: tuple[str, ...],
     ) -> None:
+        """Initialize action tool with sensitive-domain confirmation policy."""
         self._client = client
         self._sensitive_domains = {item.strip().lower() for item in sensitive_domains if item.strip()}
 
     def definition(self) -> ToolDefinition:
+        """Return OpenAI function schema for Home Assistant control actions."""
         sensitive_domain_list = ", ".join(sorted(self._sensitive_domains)) or "none"
         return ToolDefinition(
             name="control_home_device",
@@ -66,6 +72,7 @@ class HomeAssistantExecuteActionTool:
         )
 
     def execute(self, arguments: Dict[str, Any]) -> ToolExecutionResult:
+        """Validate and execute a Home Assistant service call request."""
         domain = str(arguments.get("domain", "")).strip().lower()
         service = str(arguments.get("service", "")).strip().lower()
         if not domain or not service:
