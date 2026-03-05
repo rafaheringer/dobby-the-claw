@@ -56,6 +56,8 @@ class FingerAntennaController:
         self._smoothing_alpha = float(np.clip(smoothing_alpha, 0.01, 1.0))
         self._deadband_rad = float(np.deg2rad(max(0.0, deadband_deg)))
         self._max_delta_rad = float(np.deg2rad(14.0))
+        self._arm_window_s = 1.0
+        self._armed_until_s = 0.0
 
         self._hands: Any | None = None
         self._last_detected_time: float | None = None
@@ -100,6 +102,15 @@ class FingerAntennaController:
             logger.debug("Finger tracker processing failed: %s", exc)
             return self.get_state()
 
+        if self._are_hands_closed(results):
+            self._armed_until_s = max(self._armed_until_s, now_s + self._arm_window_s)
+        mode_armed = now_s <= self._armed_until_s
+        if not mode_armed:
+            self._active = False
+            self._last_offsets = (0.0, 0.0)
+            self._last_finger_count = 0
+            return self.get_state()
+
         controls = self._extract_controls(results)
         if controls is not None:
             left_target, right_target, finger_count = controls
@@ -135,6 +146,26 @@ class FingerAntennaController:
         self._last_offsets = (0.0, 0.0)
         self._last_finger_count = 0
         return self.get_state()
+
+    def _are_hands_closed(self, results: Any) -> bool:
+        """Return True when all currently detected hands are closed (fist-like)."""
+        if results is None:
+            return False
+        hand_landmarks_list = getattr(results, "multi_hand_landmarks", None)
+        if not hand_landmarks_list:
+            return False
+        return all(self._is_hand_closed(hand_landmarks.landmark) for hand_landmarks in hand_landmarks_list)
+
+    def _is_hand_closed(self, landmarks: Any) -> bool:
+        """Heuristic for a closed hand based on folded finger tips relative to PIP joints."""
+        folded_checks = (
+            landmarks[8].y > landmarks[6].y,
+            landmarks[12].y > landmarks[10].y,
+            landmarks[16].y > landmarks[14].y,
+            landmarks[20].y > landmarks[18].y,
+        )
+        folded_count = sum(1 for check in folded_checks if check)
+        return folded_count >= 3
 
     def _init_hands(self) -> None:
         """Initialize MediaPipe Hands backend."""
