@@ -99,6 +99,10 @@ class RuntimeOrchestrator:
         self.sleep_after_response = threading.Event()
         self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
+        self.realtime_recovery_requested = False
+        self.realtime_last_error_message = ""
+        self.realtime_next_recovery_at = 0.0
+        self.pending_recovery_notice: str | None = None
 
         self.output_sample_rate = self.media_io.get_output_audio_samplerate()
         self.realtime_output_rate = 24000
@@ -178,6 +182,11 @@ class RuntimeOrchestrator:
                         text_turns=self.text_turns if self.interactive_text else None,
                     )
 
+                if self._should_recover_realtime(now):
+                    self._recover_realtime_session(now)
+                    time.sleep(0.01)
+                    continue
+
                 if self.idle_sleep_enabled and (now - self.last_user_activity) >= self.idle_sleep_timeout_s:
                     self._enter_sleep_mode()
 
@@ -238,6 +247,51 @@ class RuntimeOrchestrator:
 
     def _on_error(self, message: str) -> None:
         logging.warning("[%dms] Realtime error: %s", self._elapsed_ms(), message)
+        self.realtime_last_error_message = message.strip()
+        self.realtime_recovery_requested = True
+        self.pending_recovery_notice = (
+            "SYSTEM NOTICE (not user message): tivemos uma falha técnica temporária na conexão "
+            "durante a última resposta. Avise o usuário em português de forma breve e peça para repetir."
+        )
+
+    def _should_recover_realtime(self, now: float) -> bool:
+        if self.sleeping or self.realtime is None:
+            return False
+        if now < self.realtime_next_recovery_at:
+            return False
+        if self.realtime_recovery_requested:
+            return True
+        try:
+            return not self.realtime.wait_until_ready(timeout_s=0.0)
+        except Exception:
+            return True
+
+    def _recover_realtime_session(self, now: float) -> None:
+        self.realtime_next_recovery_at = now + 2.0
+        logging.info("[%dms] Attempting realtime session recovery", self._elapsed_ms())
+
+        if self.realtime is not None:
+            try:
+                self.realtime.stop()
+            except Exception as exc:
+                logging.warning("[%dms] Realtime stop during recovery failed: %s", self._elapsed_ms(), exc)
+            self.realtime = None
+
+        try:
+            self._start_active_session()
+        except Exception as exc:
+            self.realtime_recovery_requested = True
+            self.realtime_next_recovery_at = time.monotonic() + 5.0
+            logging.warning("[%dms] Realtime recovery failed: %s", self._elapsed_ms(), exc)
+            return
+
+        self.realtime_recovery_requested = False
+        if self.pending_recovery_notice and self.realtime is not None:
+            sent = self.realtime.send_text(self.pending_recovery_notice)
+            if sent:
+                self.pending_recovery_notice = None
+            else:
+                logging.warning("[%dms] Failed to send post-recovery notice", self._elapsed_ms())
 
     def _build_runtime_identity_prompt(self, identity_prompt: str) -> str:
         tool_guardrails = [item.strip() for item in self.tool_runtime.runtime_guardrails() if item.strip()]
@@ -326,6 +380,8 @@ class RuntimeOrchestrator:
         if self.realtime is not None:
             self.realtime.stop()
             self.realtime = None
+        self.realtime_recovery_requested = False
+        self.realtime_next_recovery_at = 0.0
 
         if self.active_mode_uses_mic_recording and self.recording_started:
             try:

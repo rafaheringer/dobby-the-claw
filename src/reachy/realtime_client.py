@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from concurrent.futures import CancelledError
 import json
 import logging
 import threading
@@ -136,9 +137,19 @@ class OpenAIRealtimeSession:
             self._loop,
         )
         try:
-            future.add_done_callback(lambda f: f.exception())
+            future.add_done_callback(self._consume_future_exception)
         except Exception:
             pass
+
+    @staticmethod
+    def _consume_future_exception(future: Any) -> None:
+        """Consume background future exceptions without noisy CancelledError logs."""
+        try:
+            future.exception()
+        except CancelledError:
+            return
+        except Exception:
+            return
 
     def send_text(self, text: str) -> bool:
         """Send one text turn to the realtime conversation session."""
@@ -333,33 +344,42 @@ class OpenAIRealtimeSession:
         if self._connection is None:
             return
 
-        await self._connection.conversation.item.create(
-            item={
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": json.dumps(result.output),
-            }
-        )
-
-        if isinstance(result.image_base64, str) and result.image_base64:
+        try:
             await self._connection.conversation.item.create(
                 item={
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_image",
-                            "image_url": f"data:image/jpeg;base64,{result.image_base64}",
-                        }
-                    ],
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result.output),
                 }
             )
 
-        await self._connection.response.create(
-            response={
-                "instructions": "Use tool results (and image when provided) to answer the user naturally.",
-            }
-        )
+            if isinstance(result.image_base64, str) and result.image_base64:
+                await self._connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_image",
+                                "image_url": f"data:image/jpeg;base64,{result.image_base64}",
+                            }
+                        ],
+                    }
+                )
+
+            await self._connection.response.create(
+                response={
+                    "instructions": "Use tool results (and image when provided) to answer the user naturally.",
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "[%dms] Failed to send tool output for call_id=%s: %s",
+                self._elapsed_ms(),
+                call_id,
+                exc,
+            )
+            self._safe_call("on_error", self.on_error, str(exc))
 
     def _extract_response_text(self, response: object) -> str:
         """Extract assistant text from response payload as a fallback path."""
