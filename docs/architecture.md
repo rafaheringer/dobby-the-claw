@@ -24,7 +24,7 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 - `src/bridge/runtime/orchestrator.py`: application service orchestrating sessions, state, media and tools.
 - `src/bridge/runtime/ports.py`: abstractions for sessions, robot actions, tools and media.
 - `src/bridge/runtime/adapters/`: concrete adapters (`realtime_session`, `reachy_actions`, `reachy_media`, `tool_runtime`, `openclaw_gateway`).
-- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `delegate_task`, `go_to_sleep`, Home Assistant tools).
+- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `delegate_task`, `go_to_sleep`, `dance`, `express_emotion`, Home Assistant tools).
 - `ToolDefinition.runtime_guardrail`: optional per-tool runtime policy text aggregated by tool runtime and appended to session instructions.
 
 ## Data Flow (Simplified)
@@ -42,8 +42,9 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
    - `control_home_device` performs `call_service` for the selected target.
    - Sensitive domains require explicit confirmation via tool argument.
 6. If `go_to_sleep` is called, the runtime enters sleep mode and waits for the offline wake word.
-7. Realtime model produces final user-facing response.
-8. Assistant audio is streamed to Reachy speaker.
+7. If `express_emotion` is called, Reachy plays a recorded move from dataset `pollen-robotics/reachy-mini-emotions-library`.
+8. Realtime model produces final user-facing response.
+9. Assistant audio is streamed to Reachy speaker.
 
 ## State Machine
 

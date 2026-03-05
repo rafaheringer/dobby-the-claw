@@ -17,6 +17,7 @@ from bridge.state_machine import Event, StateMachine
 from bridge.tools import (
     CameraSnapshotTool,
     DanceTool,
+    EmotionTool,
     GoToSleepTool,
     HomeAssistantDiscoverTool,
     HomeAssistantExecuteActionTool,
@@ -59,6 +60,7 @@ def build_tool_registry(
             wakeword_aliases=config.offline_wakeword_aliases,
         )
     )
+    tool_registry.register(EmotionTool(motion_manager))
     if config.camera_tool_enabled and camera_worker is not None:
         tool_registry.register(CameraSnapshotTool(camera_worker))
     if DANCE_AVAILABLE and motion_manager is not None:

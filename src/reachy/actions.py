@@ -63,6 +63,17 @@ class CameraCaptureSnapshotAction:
     pass
 
 
+@dataclass(frozen=True)
+class PlayRecordedMoveAction:
+    """Command for playing a recorded move from a dataset."""
+
+    dataset_name: str
+    move_name: str
+    play_frequency: float = 100.0
+    initial_goto_duration: float = 0.0
+    sound: bool = True
+
+
 ReachyAction = (
     ListeningGestureAction
     | ThinkGestureAction
@@ -71,4 +82,5 @@ ReachyAction = (
     | GazeLookAtAction
     | AntennaCycleGestureAction
     | CameraCaptureSnapshotAction
+    | PlayRecordedMoveAction
 )

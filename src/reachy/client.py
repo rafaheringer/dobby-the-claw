@@ -16,6 +16,7 @@ from reachy.actions import (
     GazeLookAtAction,
     HeadMoveAction,
     ListeningGestureAction,
+    PlayRecordedMoveAction,
     ReachyAction,
     ThinkGestureAction,
 )
@@ -31,6 +32,7 @@ class ReachyClient:
         self._use_sdk = base_url.strip().lower().startswith("sdk")
         self._reachy_mini = None
         self._sdk_instance = None
+        self._recorded_moves_cache: dict[str, Any] = {}
         if self._use_sdk:
             try:
                 from reachy_mini import ReachyMini
@@ -67,6 +69,14 @@ class ReachyClient:
             )
         if isinstance(action, CameraCaptureSnapshotAction):
             return self._run_camera_snapshot_sdk()
+        if isinstance(action, PlayRecordedMoveAction):
+            return self._run_recorded_move_sdk(
+                dataset_name=action.dataset_name,
+                move_name=action.move_name,
+                play_frequency=action.play_frequency,
+                initial_goto_duration=action.initial_goto_duration,
+                sound=action.sound,
+            )
         return ReachyActionResult(ok=False, message=f"Unsupported typed action: {type(action).__name__}")
 
     def _run_antenna_gesture_sdk(self, amplitude_rad: float, duration_s: float) -> ReachyActionResult:
@@ -117,6 +127,49 @@ class ReachyClient:
             path = temp_file.name
         cv2.imwrite(path, frame)
         return ReachyActionResult(ok=True, message="Snapshot saved", path=path)
+
+    def _run_recorded_move_sdk(
+        self,
+        *,
+        dataset_name: str,
+        move_name: str,
+        play_frequency: float,
+        initial_goto_duration: float,
+        sound: bool,
+    ) -> ReachyActionResult:
+        """Play one recorded move from a HuggingFace dataset via Reachy SDK."""
+        mini = self.get_sdk_instance()
+        dataset = str(dataset_name).strip()
+        move = str(move_name).strip()
+        if not dataset:
+            return ReachyActionResult(ok=False, message="dataset_name is required")
+        if not move:
+            return ReachyActionResult(ok=False, message="move_name is required")
+
+        try:
+            from reachy_mini.motion.recorded_move import RecordedMoves
+
+            recorded_moves = self._recorded_moves_cache.get(dataset)
+            if recorded_moves is None:
+                recorded_moves = RecordedMoves(dataset)
+                self._recorded_moves_cache[dataset] = recorded_moves
+
+            recorded_move = recorded_moves.get(move)
+            mini.async_play_move(
+                recorded_move,
+                play_frequency=float(play_frequency),
+                initial_goto_duration=float(initial_goto_duration),
+                sound=bool(sound),
+            )
+            return ReachyActionResult(
+                ok=True,
+                message=f"Recorded move queued dataset={dataset} move={move}",
+            )
+        except Exception as exc:
+            return ReachyActionResult(
+                ok=False,
+                message=f"Failed to play recorded move '{move}' from '{dataset}': {exc}",
+            )
 
     def get_sdk_instance(self):
         """Lazily create and return singleton Reachy SDK instance."""
