@@ -78,7 +78,7 @@ class BridgeConfig:
                 os.getenv("REALTIME_VAD_PREFIX_PADDING_MS", "200")
             ),
             reachy_output_volume=int(os.getenv("REACHY_OUTPUT_VOLUME", "-1")),
-            stt_language=os.getenv("STT_LANGUAGE", "pt-BR"),
+            stt_language=os.getenv("STT_LANGUAGE", "pt"),
             reachy_bridge_url=os.getenv("REACHY_BRIDGE_URL", "http://reachy-bridge:8001"),
             vision_debug_window=_env_flag("VISION_DEBUG_WINDOW", False),
             vision_debug_log_interval_s=float(os.getenv("VISION_DEBUG_LOG_INTERVAL_S", "1.0")),
