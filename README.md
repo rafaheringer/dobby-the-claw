@@ -66,3 +66,4 @@ docker compose -f docker-compose.yml -f docker-compose.rpi.yml up --build
 - [src/bridge](src/bridge): bridge code (state machine, clients, voice).
 - [docs/architecture.md](docs/architecture.md): architecture draft.
 - [docs/api-contract.md](docs/api-contract.md): message contract draft.
+- [docs/raspberry-integration.md](docs/raspberry-integration.md): raspberry integration docs.
