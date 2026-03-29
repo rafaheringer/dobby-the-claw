@@ -22,7 +22,7 @@ from numpy.typing import NDArray
 from reachy_mini.utils import create_head_pose
 from reachy_mini.utils.interpolation import compose_world_offset, linear_pose_interpolation
 
-from bridge.reachy.speech_tapper import HOP_MS, SwayRollRT
+from reachy.speech_tapper import HOP_MS, SwayRollRT
 from bridge.state_machine import State
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,9 @@ class MovementState:
     last_activity_time: float = 0.0
     speech_offsets: Tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     face_tracking_offsets: Tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    antenna_finger_active: bool = False
+    antenna_finger_offsets: Tuple[float, float] = (0.0, 0.0)
+    antenna_finger_count: int = 0
     last_primary_pose: FullBodyPose | None = None
 
     def update_activity(self) -> None:
@@ -167,6 +170,18 @@ class MotionManager:
         self._speech_animation_thread: threading.Thread | None = None
         self._sway_rt = SwayRollRT()
 
+        self._body_yaw_tracking_enabled = True
+        self._body_yaw_gain = 1.35
+        self._body_yaw_enter_threshold_rad = 0.08
+        self._body_yaw_exit_threshold_rad = 0.04
+        if self._body_yaw_exit_threshold_rad > self._body_yaw_enter_threshold_rad:
+            self._body_yaw_exit_threshold_rad = self._body_yaw_enter_threshold_rad
+        self._body_yaw_max_rad = 1.2
+        self._body_yaw_max_speed_rad_s = 1.0
+        self._body_yaw_tracking_active = False
+        self._body_yaw_current_rad = 0.0
+        self._last_secondary_pose_time = self._now()
+
     def start(self) -> None:
         """Start the movement worker loop thread."""
         if self._thread is not None and self._thread.is_alive():
@@ -187,11 +202,14 @@ class MotionManager:
             self.current_robot.goto_target(head=neutral_head_pose, antennas=[0.0, 0.0], duration=1.5, body_yaw=0.0)
         except Exception as exc:
             logger.debug("Failed to reset neutral pose: %s", exc)
+        self._body_yaw_tracking_active = False
+        self._body_yaw_current_rad = 0.0
+        self._last_secondary_pose_time = self._now()
 
     def set_state(self, state: State) -> None:
         """Map bridge state to movement listening mode and activity updates."""
         self.mark_activity()
-        self.set_listening(state in {State.LISTENING, State.THINKING})
+        self.set_listening(state in {State.LISTENING, State.THINKING, State.DELEGATING})
 
     def queue_move(self, move: Move) -> None:
         """Queue a primary move for execution."""
@@ -316,11 +334,21 @@ class MotionManager:
         if command == "queue_move" and isinstance(payload, Move):
             self.move_queue.append(payload)
             self.state.update_activity()
+            logger.info("Queued move: %s (queue_size=%d)", type(payload).__name__, len(self.move_queue))
+            # Interrupt breathing if a non-breathing move is queued
+            if self._breathing_active and not isinstance(payload, BreathingMove):
+                logger.info("Interrupting breathing to execute queued move")
+                self.state.current_move = None
+                self.state.move_start_time = None
+                self._breathing_active = False
         elif command == "clear_queue":
+            cleared = len(self.move_queue)
             self.move_queue.clear()
             self.state.current_move = None
             self.state.move_start_time = None
             self._breathing_active = False
+            if cleared > 0:
+                logger.info("Cleared %d queued moves", cleared)
         elif command == "mark_activity":
             self.state.update_activity()
         elif command == "set_listening":
@@ -342,12 +370,18 @@ class MotionManager:
             self.state.move_start_time is not None
             and current_time - self.state.move_start_time >= self.state.current_move.duration
         ):
+            if self.state.current_move is not None:
+                logger.info("Move completed: %s (duration=%.2fs)", type(self.state.current_move).__name__, self.state.current_move.duration)
             self.state.current_move = None
             self.state.move_start_time = None
             if self.move_queue:
                 self.state.current_move = self.move_queue.popleft()
                 self.state.move_start_time = current_time
                 self._breathing_active = isinstance(self.state.current_move, BreathingMove)
+                logger.info("Starting move: %s (duration=%.2fs, queue_size=%d)", 
+                           type(self.state.current_move).__name__, 
+                           self.state.current_move.duration,
+                           len(self.move_queue))
 
     def _manage_breathing(self, current_time: float) -> None:
         """Start breathing move automatically when idle and not listening."""
@@ -393,8 +427,43 @@ class MotionManager:
         self.state.last_primary_pose = clone_full_body_pose(primary)
         return primary
 
-    def _get_secondary_pose(self) -> FullBodyPose:
+    def _compute_body_yaw_offset(self, dt: float) -> float:
+        """Compute smoothed body yaw offset from face-tracking yaw."""
+        if not self._body_yaw_tracking_enabled:
+            self._body_yaw_tracking_active = False
+            self._body_yaw_current_rad = 0.0
+            return 0.0
+
+        tracking_yaw = float(self.state.face_tracking_offsets[5])
+        abs_tracking_yaw = abs(tracking_yaw)
+
+        if self._body_yaw_tracking_active:
+            if abs_tracking_yaw <= self._body_yaw_exit_threshold_rad:
+                self._body_yaw_tracking_active = False
+        elif abs_tracking_yaw >= self._body_yaw_enter_threshold_rad:
+            self._body_yaw_tracking_active = True
+
+        target_body_yaw = 0.0
+        if self._body_yaw_tracking_active:
+            target_body_yaw = tracking_yaw * self._body_yaw_gain
+            target_body_yaw = max(-self._body_yaw_max_rad, min(self._body_yaw_max_rad, target_body_yaw))
+
+        if self._body_yaw_max_speed_rad_s > 0.0 and dt > 0.0:
+            max_step = self._body_yaw_max_speed_rad_s * dt
+            delta = target_body_yaw - self._body_yaw_current_rad
+            delta = max(-max_step, min(max_step, delta))
+            self._body_yaw_current_rad += delta
+        else:
+            self._body_yaw_current_rad = target_body_yaw
+
+        if abs(self._body_yaw_current_rad) < 1e-4:
+            self._body_yaw_current_rad = 0.0
+        return self._body_yaw_current_rad
+
+    def _get_secondary_pose(self, current_time: float) -> FullBodyPose:
         """Compose secondary pose from speech and camera offsets."""
+        dt = max(0.0, current_time - self._last_secondary_pose_time)
+        self._last_secondary_pose_time = current_time
         secondary_offsets = [
             self.state.speech_offsets[0] + self.state.face_tracking_offsets[0],
             self.state.speech_offsets[1] + self.state.face_tracking_offsets[1],
@@ -413,7 +482,8 @@ class MotionManager:
             degrees=False,
             mm=False,
         )
-        return (secondary_head_pose, (0.0, 0.0), 0.0)
+        secondary_body_yaw = self._compute_body_yaw_offset(dt)
+        return (secondary_head_pose, (0.0, 0.0), secondary_body_yaw)
 
     def _calculate_blended_antennas(self, target_antennas: Tuple[float, float]) -> Tuple[float, float]:
         """Freeze antennas while listening, then blend back smoothly."""
@@ -438,12 +508,19 @@ class MotionManager:
             self._listening_antennas = (float(target_antennas[0]), float(target_antennas[1]))
         return antennas_cmd
 
-    def _update_face_tracking(self) -> None:
-        """Pull face tracking offsets from camera worker."""
+    def _update_camera_tracking(self) -> None:
+        """Pull face and finger tracking offsets from camera worker."""
         if self.camera_worker is None:
             self.state.face_tracking_offsets = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            self.state.antenna_finger_active = False
+            self.state.antenna_finger_offsets = (0.0, 0.0)
+            self.state.antenna_finger_count = 0
             return
         self.state.face_tracking_offsets = self.camera_worker.get_face_tracking_offsets()
+        hand_active, hand_offsets, finger_count = self.camera_worker.get_antenna_finger_control()
+        self.state.antenna_finger_active = bool(hand_active)
+        self.state.antenna_finger_offsets = (float(hand_offsets[0]), float(hand_offsets[1]))
+        self.state.antenna_finger_count = int(finger_count)
 
     def _issue_control_command(self, head: NDArray[np.float64], antennas: Tuple[float, float], body_yaw: float) -> None:
         """Send fused pose to robot using a single set_target call."""
@@ -451,7 +528,7 @@ class MotionManager:
             self.current_robot.set_target(head=head, antennas=antennas, body_yaw=body_yaw)
             self._last_commanded_pose = clone_full_body_pose((head, antennas, body_yaw))
         except Exception as exc:
-            logger.debug("Failed to set robot target: %s", exc)
+            logger.warning("Failed to set robot target: %s", exc, exc_info=True)
 
     def get_status(self) -> Dict[str, Any]:
         """Return movement status snapshot for diagnostics."""
@@ -459,6 +536,8 @@ class MotionManager:
             "queue_size": len(self.move_queue),
             "is_listening": self._is_listening,
             "breathing_active": self._breathing_active,
+            "antenna_finger_active": self.state.antenna_finger_active,
+            "antenna_finger_count": self.state.antenna_finger_count,
         }
 
     def working_loop(self) -> None:
@@ -469,12 +548,20 @@ class MotionManager:
             self._poll_signals(loop_start)
             self._manage_move_queue(loop_start)
             self._manage_breathing(loop_start)
-            self._update_face_tracking()
+            self._update_camera_tracking()
 
             primary = self._get_primary_pose(loop_start)
-            secondary = self._get_secondary_pose()
+            secondary = self._get_secondary_pose(loop_start)
             head, antennas, body_yaw = combine_full_body(primary, secondary)
-            antennas_cmd = self._calculate_blended_antennas(antennas)
+            if self.state.antenna_finger_active:
+                antennas_cmd = (
+                    float(self.state.antenna_finger_offsets[0]),
+                    float(self.state.antenna_finger_offsets[1]),
+                )
+                self._listening_antennas = antennas_cmd
+                self._antenna_unfreeze_blend = 1.0
+            else:
+                antennas_cmd = self._calculate_blended_antennas(antennas)
             self._issue_control_command(head, antennas_cmd, body_yaw)
 
             computation_time = self._now() - loop_start

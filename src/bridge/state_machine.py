@@ -1,22 +1,30 @@
+"""Finite-state machine definitions for bridge conversation lifecycle."""
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
 
 class State(str, Enum):
+    """Runtime states for wake/listen/think/execute flows."""
     IDLE = "IDLE"
     LISTENING = "LISTENING"
     THINKING = "THINKING"
+    DELEGATING = "DELEGATING"
     EXECUTING = "EXECUTING"
     CONFIRMING = "CONFIRMING"
     ERROR = "ERROR"
 
 
 class Event(str, Enum):
+    """Events that drive state transitions."""
     WAKE_WORD = "WAKE_WORD"
     STT_RECEIVED = "STT_RECEIVED"
+    DELEGATION_STARTED = "DELEGATION_STARTED"
+    DELEGATION_DONE = "DELEGATION_DONE"
     TIMEOUT = "TIMEOUT"
     RESPONSE_READY = "RESPONSE_READY"
+    RESET = "RESET"
     MODEL_ERROR = "MODEL_ERROR"
     NEED_CONFIRMATION = "NEED_CONFIRMATION"
     CONFIRMED = "CONFIRMED"
@@ -25,16 +33,25 @@ class Event(str, Enum):
 
 @dataclass
 class Transition:
+    """Transition record describing origin, target, and event."""
     from_state: State
     to_state: State
     event: Event
 
 
 class StateMachine:
+    """Deterministic finite-state machine for runtime interaction states."""
+
     def __init__(self) -> None:
+        """Initialize the state machine in IDLE state."""
         self.state = State.IDLE
 
     def transition(self, event: Event) -> State:
+        """Apply one event and return the resulting state."""
+        if event == Event.RESET:
+            self.state = State.IDLE
+            return self.state
+
         if self.state == State.IDLE:
             if event == Event.WAKE_WORD:
                 self.state = State.LISTENING
@@ -44,12 +61,21 @@ class StateMachine:
             elif event == Event.TIMEOUT:
                 self.state = State.IDLE
         elif self.state == State.THINKING:
-            if event == Event.RESPONSE_READY:
+            if event == Event.DELEGATION_STARTED:
+                self.state = State.DELEGATING
+            elif event == Event.RESPONSE_READY:
                 self.state = State.EXECUTING
             elif event == Event.MODEL_ERROR:
                 self.state = State.ERROR
+        elif self.state == State.DELEGATING:
+            if event == Event.DELEGATION_DONE:
+                self.state = State.THINKING
+            elif event == Event.MODEL_ERROR:
+                self.state = State.ERROR
         elif self.state == State.EXECUTING:
-            if event == Event.NEED_CONFIRMATION:
+            if event == Event.DELEGATION_STARTED:
+                self.state = State.DELEGATING
+            elif event == Event.NEED_CONFIRMATION:
                 self.state = State.CONFIRMING
             elif event == Event.RESPONSE_READY:
                 self.state = State.IDLE

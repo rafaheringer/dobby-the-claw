@@ -1,3 +1,5 @@
+"""Camera snapshot tool that exposes the latest frame to the model."""
+
 from __future__ import annotations
 
 import base64
@@ -9,10 +11,14 @@ from bridge.tools.contracts import ToolDefinition, ToolExecutionResult
 
 
 class CameraSnapshotTool:
+    """Capture and encode the latest camera frame for tool responses."""
+
     def __init__(self, camera_worker) -> None:
+        """Store camera worker used to fetch the latest frame."""
         self.camera_worker = camera_worker
 
     def definition(self) -> ToolDefinition:
+        """Return OpenAI function schema for the camera snapshot tool."""
         return ToolDefinition(
             name="camera_snapshot",
             description="Capture the latest camera frame and make it available as an image input for visual understanding.",
@@ -29,6 +35,7 @@ class CameraSnapshotTool:
         )
 
     def execute(self, arguments: Dict[str, Any]) -> ToolExecutionResult:
+        """Capture a frame, encode as JPEG base64, and return metadata."""
         frame = self.camera_worker.get_latest_frame()
         if frame is None:
             return ToolExecutionResult(output={"ok": False, "message": "No camera frame available"})

@@ -2,17 +2,42 @@
 
 ## Runtime truth (read this first)
 - Current production path is OpenAI Realtime + Reachy SDK/bridge, not OpenClaw intent routing.
-- OpenClaw integration is planned only (`docs/api-contract.md` is future-facing).
 - There is no separate STT service in runtime; transcription comes from Realtime events.
 
 ## Big-picture architecture
 - Entry point: `python -m bridge.main` (`src/bridge/main.py`).
-- Main loop in realtime mode: `_run_realtime_loop(...)`.
+- Runtime orchestration core: `RuntimeOrchestrator` (`src/bridge/runtime/orchestrator.py`).
 - Core boundaries:
-  - `bridge.reachy.realtime_client.OpenAIRealtimeSession`: websocket session, audio in/out, tool-call handling.
+  - `reachy.realtime_client.OpenAIRealtimeSession`: websocket session, audio in/out, tool-call handling.
   - `bridge.state_machine.StateMachine`: finite-state transitions (`IDLE/LISTENING/THINKING/EXECUTING/CONFIRMING/ERROR`).
-  - `bridge.reachy.client.ReachyClient`: action executor; SDK path active when `REACHY_BRIDGE_URL=sdk`.
-  - `bridge.reachy.motion.MotionManager` + `bridge.reachy.camera_worker.CameraWorker`: physical behavior loop and tracking.
+  - `reachy.client.ReachyClient`: action executor; SDK path active when `REACHY_BRIDGE_URL=sdk`.
+  - `reachy.motion.MotionManager` + `reachy.camera_worker.CameraWorker`: physical behavior loop and tracking.
+
+## Required architecture standards (always)
+- Keep runtime core decoupled via **Ports & Adapters**.
+  - Ports live in `src/bridge/runtime/ports.py`.
+  - Concrete adapters live in `src/bridge/runtime/adapters/`.
+  - `RuntimeOrchestrator` must depend on ports, never on concrete infra clients directly.
+- Keep chat/realtime modes thin.
+  - `chat_mode.py` and `realtime_mode.py` are composition/bootstrapping entrypoints only.
+  - Shared behavior belongs in `RuntimeOrchestrator`.
+- State transitions must go through `StateMachine` events.
+  - Do not mutate state directly from runtime loops.
+  - Preserve callback mapping: speech_start -> `WAKE_WORD`, transcript -> `STT_RECEIVED`, assistant_audio_done -> `RESPONSE_READY`.
+- Use typed commands/results for Reachy actions.
+  - Action contracts are defined in `src/reachy/actions.py`.
+  - Action execution result contract is `ReachyActionResult` in `src/reachy/results.py`.
+  - Avoid reintroducing dict-based action APIs unless explicitly requested.
+- Keep latency-safe boundaries.
+  - No blocking/heavy work inside realtime callbacks.
+  - Respect queue/thread boundaries (audio queue, motion command queue).
+
+## Refactor and maintenance policy
+- Prefer root-cause refactors over additive compatibility layers.
+- Do not keep legacy compatibility paths unless explicitly requested.
+- When replacing an API internally, remove unused legacy code in the same PR when safe.
+- Keep imports, type hints, and naming consistent after refactors.
+- Validate changes with at least compile/syntax checks before finalizing.
 
 ## Realtime event-to-state mapping
 - Speech start callback triggers `Event.WAKE_WORD` and listening gesture.
@@ -24,7 +49,7 @@
 - Register tools through `ToolRegistry` (`src/bridge/tools/runtime.py`).
 - Tool schema must be OpenAI function-compatible (`definition()` returning JSON schema-like parameters).
 - Tool execution returns `ToolExecutionResult`; include `image_base64` when sending visual context (see `camera_snapshot`).
-- Add new tools under `src/bridge/tools/` and register from `_run_realtime_loop`.
+- Add new tools under `src/bridge/tools/` and register in runtime composition path.
 
 ## Developer workflows
 - Local run (venv): `python -m bridge.main --mode realtime`
@@ -45,5 +70,5 @@
 
 ## Docs consistency guidance
 - Use `README.md` + `docs/architecture.md` as the current architecture source.
-- Treat `docs/behavior-spec-v1.md` and OpenClaw contract sections as partially future/planned where they conflict with runtime code.
 - If changing runtime behavior, update docs in the same PR to keep these files aligned.
+- If changing runtime boundaries or contracts, also update this file (`.github/copilot-instructions.md`).

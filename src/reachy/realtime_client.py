@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from concurrent.futures import CancelledError
 import json
 import logging
 import threading
@@ -50,6 +51,7 @@ class OpenAIRealtimeSession:
         tool_specs: Optional[List[Dict[str, Any]]] = None,
         on_tool_call: Optional[Callable[[str, Dict[str, Any]], ToolExecutionResult]] = None,
     ) -> None:
+        """Initialize realtime session config, callbacks, and runtime state."""
         self.api_key = api_key
         self.api_base = api_base.rstrip("/")
         self.model = model
@@ -136,14 +138,56 @@ class OpenAIRealtimeSession:
             self._loop,
         )
         try:
-            future.add_done_callback(lambda f: f.exception())
+            future.add_done_callback(self._consume_future_exception)
         except Exception:
             pass
 
+    @staticmethod
+    def _consume_future_exception(future: Any) -> None:
+        """Consume background future exceptions without noisy CancelledError logs."""
+        try:
+            future.exception()
+        except CancelledError:
+            return
+        except Exception:
+            return
+
+    def send_text(self, text: str) -> bool:
+        """Send one text turn to the realtime conversation session."""
+        text = text.strip()
+        if not text:
+            return False
+        if not self._ready.is_set() or self._loop is None or self._connection is None:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(self._send_text_message(text), self._loop)
+        try:
+            future.result(timeout=4.0)
+            return True
+        except Exception as exc:
+            logger.warning("[%dms] Failed to send text turn: %s", self._elapsed_ms(), exc)
+            self._safe_call("on_error", self.on_error, str(exc))
+            return False
+
+    async def _send_text_message(self, text: str) -> None:
+        """Append text user message and request an assistant response."""
+        if self._connection is None:
+            return
+        await self._connection.conversation.item.create(
+            item={
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": text}],
+            }
+        )
+        await self._connection.response.create(response={})
+
     def _run_thread(self) -> None:
+        """Run the asyncio realtime loop inside the worker thread."""
         asyncio.run(self._run())
 
     async def _run(self) -> None:
+        """Connect to OpenAI Realtime API and process streaming events."""
         self._loop = asyncio.get_running_loop()
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.api_base)
         logger.info(
@@ -178,6 +222,7 @@ class OpenAIRealtimeSession:
                         "output": {
                             "format": {
                                 "type": "audio/pcm",
+                                "rate": 24000,
                             },
                             "voice": "ballad",
                         },
@@ -294,7 +339,7 @@ class OpenAIRealtimeSession:
             result = ToolExecutionResult(output={"ok": False, "message": "Tooling not configured"})
         else:
             try:
-                result = self.on_tool_call(tool_name, parsed_args)
+                result = await asyncio.to_thread(self.on_tool_call, tool_name, parsed_args)
             except Exception as exc:
                 logger.exception("[%dms] Tool execution failed: %s", self._elapsed_ms(), exc)
                 result = ToolExecutionResult(output={"ok": False, "message": str(exc)})
@@ -302,33 +347,42 @@ class OpenAIRealtimeSession:
         if self._connection is None:
             return
 
-        await self._connection.conversation.item.create(
-            item={
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": json.dumps(result.output),
-            }
-        )
-
-        if isinstance(result.image_base64, str) and result.image_base64:
+        try:
             await self._connection.conversation.item.create(
                 item={
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_image",
-                            "image_url": f"data:image/jpeg;base64,{result.image_base64}",
-                        }
-                    ],
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result.output),
                 }
             )
 
-        await self._connection.response.create(
-            response={
-                "instructions": "Use tool results (and image when provided) to answer the user naturally.",
-            }
-        )
+            if isinstance(result.image_base64, str) and result.image_base64:
+                await self._connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_image",
+                                "image_url": f"data:image/jpeg;base64,{result.image_base64}",
+                            }
+                        ],
+                    }
+                )
+
+            await self._connection.response.create(
+                response={
+                    "instructions": "Use tool results (and image when provided) to answer the user naturally.",
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "[%dms] Failed to send tool output for call_id=%s: %s",
+                self._elapsed_ms(),
+                call_id,
+                exc,
+            )
+            self._safe_call("on_error", self.on_error, str(exc))
 
     def _extract_response_text(self, response: object) -> str:
         """Extract assistant text from response payload as a fallback path."""

@@ -1,52 +1,73 @@
-# Architecture (Draft)
+# Architecture
 
-This document captures the high-level architecture for the Reachy Mini + OpenClaw bridge.
+This document captures the current runtime architecture for Reachy Mini + Bridge + OpenAI Realtime + OpenClaw delegation + Home Assistant control.
 
 ## Goals
 
-- OpenAI Realtime is the active cognitive runtime today.
-- Reachy Mini executes physical actions and TTS.
-- The bridge coordinates state, safety policy, and IO.
-- Local API is used for all inter-process communication.
-- OpenClaw integration remains a planned next phase.
+- Keep Bridge as the single user-facing interface.
+- Use OpenAI Realtime for low-latency voice IO and assistant generation.
+- Use Reachy Mini as embodiment (motion + speaker + mic via SDK).
+- Delegate complex/long-running tasks to OpenClaw through a tool call.
+- Control home devices through Home Assistant tool calls.
 
 ## Components
 
-- OpenAI Realtime API: live speech transcription + LLM response + streamed audio output.
-- Bridge (Python): state machine, realtime IO orchestration, tool routing.
-- Reachy Bridge API: physical motion, gestures, face tracking.
-- Optional future component: OpenClaw API (HTTP/WebSocket) for intent/planning.
+- OpenAI Realtime API: live transcription, model responses, streamed assistant audio.
+- Bridge Runtime (Python): state machine, orchestration, tool routing, wakeword/idle logic.
+- Reachy SDK (active path): motion, gestures, camera/audio media.
+- Camera worker can provide index-finger-based antenna override (1 finger -> both antennas, 2 fingers -> left/right split), temporarily overriding antenna breathing sway while active.
+- OpenClaw Gateway (WebSocket): delegated task execution.
+- Home Assistant (WebSocket API): entity discovery and service execution.
+
+## Runtime Core Boundaries
+
+- `src/bridge/runtime/orchestrator.py`: application service orchestrating sessions, state, media and tools.
+- `src/bridge/runtime/ports.py`: abstractions for sessions, robot actions, tools and media.
+- `src/bridge/runtime/adapters/`: concrete adapters (`realtime_session`, `reachy_actions`, `reachy_media`, `tool_runtime`, `openclaw_gateway`).
+- `src/bridge/tools/`: tool implementations and contracts (`camera_snapshot`, `delegate_task`, `go_to_sleep`, `dance`, `express_emotion`, Home Assistant tools).
+- `ToolDefinition.runtime_guardrail`: optional per-tool runtime policy text aggregated by tool runtime and appended to session instructions.
 
 ## Data Flow (Simplified)
 
-1. Audio input -> Wake word detection.
-2. If wake word, start LISTENING.
-3. Audio stream is sent to OpenAI Realtime.
-4. Realtime returns user transcript + assistant response.
-5. Bridge executes tools/actions as needed.
-6. Bridge calls Reachy Bridge / SDK for gestures and motion.
-7. Assistant audio is streamed back to Reachy speaker.
+1. Audio input enters wakeword/voice pipeline.
+2. Realtime callbacks transition state (`WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`).
+3. Model may call tools.
+4. If `delegate_task` is called:
+   - Bridge informs user to wait (instruction-level behavior in identity prompt).
+   - Bridge enters `DELEGATING` and triggers waiting gesture.
+   - Tool calls OpenClaw Gateway over WebSocket RPC (`connect.challenge` + `connect`, then `chat.send`/`chat.history`) and waits for final text.
+   - Tool result returns to Realtime function output.
+5. If Home Assistant tools are called:
+   - `discover_home_devices` fetches entities (`get_states`) and service schemas (`get_services`).
+   - `control_home_device` performs `call_service` for the selected target.
+   - Sensitive domains require explicit confirmation via tool argument.
+6. If `go_to_sleep` is called, the runtime enters sleep mode and waits for the offline wake word.
+7. If `express_emotion` is called, Reachy plays a recorded move from dataset `pollen-robotics/reachy-mini-emotions-library`.
+8. Realtime model produces final user-facing response.
+9. Assistant audio is streamed to Reachy speaker.
 
 ## State Machine
 
-States: IDLE, LISTENING, THINKING, EXECUTING, CONFIRMING, ERROR.
-Timeouts: LISTENING=10s, CONFIRMING=15s.
+States: `IDLE`, `LISTENING`, `THINKING`, `DELEGATING`, `EXECUTING`, `CONFIRMING`, `ERROR`.
 
-Note: these states are currently driven by realtime callbacks/events, not by OpenClaw intent responses.
+Important transitions:
 
-## Safety and Memory
+- `THINKING` + `DELEGATION_STARTED` -> `DELEGATING`
+- `DELEGATING` + `DELEGATION_DONE` -> `THINKING`
+- Existing realtime transitions remain intact (`WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`, etc.).
 
-- Never store secrets (passwords, tokens, keys, 2FA codes).
-- Store only preferences, config, and summarized action history.
-- Retention: audit log 90 days, conversation 7 days optional.
+## Configuration
 
-## Deployment
+Primary runtime configuration comes from `.env` via `BridgeConfig.from_env()`.
 
-- Docker Compose for local dev on Linux.
-- Optional Raspberry profile with CPU/RAM limits.
-- Volumes for logs and optional memory store.
 
 ## Implementation Status
 
-- Current production path: Bridge + OpenAI Realtime + Reachy Bridge/SDK.
-- Planned path: add OpenClaw intent/planning API and route cognition through it.
+- Current production path: Bridge + OpenAI Realtime + Reachy SDK + OpenClaw delegation tool.
+- Non-SDK Reachy HTTP path remains TODO.
+
+## Prompt/Policy Composition
+
+- Base assistant identity prompt is loaded from `src/prompts/identity.txt`.
+- Tool runtime aggregates per-tool `runtime_guardrail` entries.
+- Orchestrator appends aggregated tool guardrails to session instructions generically (without hard-coding specific tool names).
