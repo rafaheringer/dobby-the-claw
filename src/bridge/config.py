@@ -53,6 +53,8 @@ class BridgeConfig:
     home_assistant_timeout_s: float
     home_assistant_sensitive_domains: tuple[str, ...]
     wakeword_model_path: str
+    pi_ssh_host: str
+    pi_ssh_user: str
 
 
     @staticmethod
@@ -123,4 +125,6 @@ class BridgeConfig:
                 ).split(",") if domain.strip()
             ),
             wakeword_model_path=os.getenv("WAKEWORD_MODEL_PATH", "").strip(),
+            pi_ssh_host=os.getenv("PI_SSH_HOST", "raspberrypi.local").strip(),
+            pi_ssh_user=os.getenv("PI_SSH_USER", "dobby").strip(),
         )

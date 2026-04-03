@@ -14,6 +14,7 @@ from bridge.runtime import (
     load_identity_prompt,
     run_chat_loop,
     run_realtime_loop,
+    run_tui_loop,
     start_runtime_workers,
     stop_runtime_workers,
 )
@@ -25,7 +26,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Dobby bridge")
     parser.add_argument(
         "--mode",
-        choices=["idle", "realtime", "chat"],
+        choices=["idle", "realtime", "chat", "tui"],
         default=os.getenv("BRIDGE_MODE", "realtime"),
     )
     parser.add_argument(
@@ -109,6 +110,19 @@ def main() -> None:
 
         if args.mode == "chat":
             run_chat_loop(
+                state_machine=state_machine,
+                reachy=runtime.reachy,
+                motion_manager=runtime.motion_manager,
+                camera_worker=runtime.camera_worker,
+                config=config,
+                reachy_sdk_instance=runtime.reachy_sdk_instance,
+                identity_prompt=identity_prompt,
+                idle_sleep_timeout_s=idle_sleep_timeout_s,
+            )
+            return
+
+        if args.mode == "tui":
+            run_tui_loop(
                 state_machine=state_machine,
                 reachy=runtime.reachy,
                 motion_manager=runtime.motion_manager,

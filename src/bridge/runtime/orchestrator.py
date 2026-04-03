@@ -59,6 +59,7 @@ class RuntimeOrchestrator:
         tool_runtime: ToolRuntimePort | None = None,
         media_io: MediaIOPort | None = None,
         ha_client: HomeAssistantWsClient | None = None,
+        skip_stdin: bool = False,
     ) -> None:
         """Initialize shared runtime dependencies and orchestration state."""
         self.mode_name = mode_name
@@ -112,6 +113,7 @@ class RuntimeOrchestrator:
         self.input_sample_rate = self.media_io.get_input_audio_samplerate()
 
         self._ha_client = ha_client
+        self._skip_stdin = skip_stdin
         self.tool_specs = self.tool_runtime.openai_specs()
         self.identity_prompt_runtime = self._build_runtime_identity_prompt(identity_prompt)
         self.wakeword = build_wakeword_detector(config)
@@ -125,7 +127,7 @@ class RuntimeOrchestrator:
         self._log_mode_start()
         self._start_active_session()
 
-        if self.interactive_text:
+        if self.interactive_text and not self._skip_stdin:
             logging.info("Type your message and press Enter. Use /quit to exit chat mode.")
             threading.Thread(target=self._input_worker, daemon=True).start()
 
