@@ -142,3 +142,35 @@ cargo cinstall -p gst-plugin-webrtc --prefix=/opt/gst-plugins-rs --release
 echo 'export GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:$GST_PLUGIN_PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
+
+E agora precisamos garantir que o Daemon sempre funcione mesmo após o reinicio do Raspberry ou quando ocorre isso, para isso:
+
+```bash
+# Crie o arquivo de serviço
+sudo nano /etc/systemd/system/reachy-mini-daemon.service
+
+# Com o conteúdo abaixo
+[Unit]
+Description=Reachy Mini Daemon
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=dobby
+WorkingDirectory=/home/dobby
+Environment="PATH=/home/dobby/reachy_mini_env/bin:/opt/gstreamer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:/opt/gstreamer/lib/aarch64-linux-gnu/gstreamer-1.0"
+Environment="LD_LIBRARY_PATH=/opt/gstreamer/lib/aarch64-linux-gnu"
+ExecStart=/home/dobby/reachy_mini_env/bin/reachy-mini-daemon
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+# Reinicia systemctl
+sudo systemctl daemon-reload
+sudo systemctl enable reachy-mini-daemon
+sudo systemctl start reachy-mini-daemon
+```
