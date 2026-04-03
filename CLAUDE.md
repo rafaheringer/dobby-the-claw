@@ -41,6 +41,15 @@ docker compose up --build
 docker compose -f docker-compose.yml -f docker-compose.rpi.yml up --build
 ```
 
+### SSH Tunnels (local development)
+
+Forwards Reachy SDK, WebRTC signaling, OpenClaw and Home Assistant from the Raspberry Pi:
+
+```bash
+./scripts/tunnel.sh        # open all tunnels
+./scripts/tunnel.sh stop   # close
+```
+
 ### Lint / Format
 
 ```bash
