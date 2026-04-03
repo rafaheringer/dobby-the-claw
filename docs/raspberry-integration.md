@@ -1,95 +1,127 @@
-# Raspberry  Pi integration
+# Raspberry Pi Integration
 
-## Setup Raspberry Pi
-É necessário pelo menos um Raspberry Pi 4 Model com 8G de RAM. Idealmente rodaddo o Ubuntu Server 22.04 LTS (x64). Versões mais novas não possuem suporte pleno para este Raspberry. [How to install Ubuntu o a Raspberry Pi](https://ubuntu.com/download/raspberry-pi).
+## Hardware Requirements
 
-Atenção: não use cartão SD. SD cards foram projetados para armazenamento, não para uso como disco de sistema operacional com escrita contínua.
+- Raspberry Pi 4 Model B with **8 GB RAM** (minimum)
+- OS: **Ubuntu Server 22.04 LTS (x64)** — newer versions do not have full support yet
+- Storage: **USB SSD or USB drive** — do not use an SD card. SD cards are not designed for continuous OS-level writes and will fail prematurely
 
-Após a instalação, acesse o Sistema Operacional através do SSH:
+[How to install Ubuntu on a Raspberry Pi](https://ubuntu.com/download/raspberry-pi)
+
+---
+
+## Initial SSH Access
+
+After installation, access the Pi via SSH. If you have a static IP reservation configured on your router (recommended):
+
 ```bash
-ssh <user>@<ip-do-raspberry>
+ssh dobby@raspberrypi.local
 ```
 
-Iremos precisar do [Docker](https://docs.docker.com/engine/install/ubuntu/) e GIT:
+> **Mesh network note:** mDNS (`hostname.local`) is unreliable on mesh networks because multicast packets are often not forwarded between nodes. If it doesn't resolve, add an entry to your local `/etc/hosts` pointing to the static IP:
+> ```
+> 192.168.68.56   raspberrypi.local
+> ```
+
+---
+
+## Base Dependencies
+
+Install Git and Docker:
 
 ```bash
-#GIT
+# Git
 sudo apt-get install git-all
 
-#Docker
+# Docker (official install script)
 curl -fsSL https://get.docker.com | sh
 
-# Add user to docker group
+# Add current user to docker group (re-login required to take effect)
 sudo usermod -aG docker $USER
 ```
 
+Log out and back in, then verify: `docker ps`
 
-### Open Claw
-Use a versão containerizada (Docker). Com docker instalado, vamos baixar o repositório do Open Claw e utilizar o script pronto para instalar.
+---
+
+## OpenClaw
+
+Use the containerized (Docker) version. OpenClaw handles long-running or complex task delegation from the bridge.
 
 ```bash
-# Git clone
 git clone https://github.com/openclaw/openclaw.git ~/openclaw
 cd ~/openclaw
 
-# Install
 export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
 ./scripts/docker/setup.sh
 ```
 
-Para acessar o CLI do OpenClaw:
-```bash
-# Descubra o nome/ID do container
-docker ps
+**Save the bearer token** shown during setup — it goes into your `.env` as `OPENCLAW_BEARER_TOKEN`.
 
-# Entre no container e use o CLI
-docker exec -it <nome_do_container> bash
-```
-
-Para acessar a inteface do OpenClaw no navegador, basta mapear a porta remota. Lembre-se de guadar o token informado na configuração no Open Claw.
-```bash
-ssh -fN -L 18789:127.0.0.1:18789 <user>@<ip-do-raspberry>
-```
-
-### Home Assistant
-Podemos usar a versão Docker do Home Assistant. Para isso, basta rodar o docker compose utilizando o arquivo `docker-compose-ha.yml`. Neste exemplo já estamos mapeando o device "ttyUSB0" (neste projeto é um ZBDongle-E), caso não seja necessário, remova.
+To access the OpenClaw web UI, forward the port via SSH tunnel:
 
 ```bash
-docker compose up -f docker-compose-ha.yml  -d
+ssh -fN -L 18789:127.0.0.1:18789 dobby@raspberrypi.local
+# Then open: http://localhost:18789
 ```
 
-Para acessar a interface, vamos precisar criar um túnel:
+To access the OpenClaw CLI:
+
 ```bash
-ssh -fN -L 8123:127.0.0.1:8123 <user>@<ip-do-raspberry>
+docker ps                              # find the container name/ID
+docker exec -it <container_name> bash
 ```
 
-E para instalar o HAC:
+---
+
+## Home Assistant
+
+Run Home Assistant using the provided Docker Compose file. The config maps `/dev/ttyUSB0` for a Zigbee dongle (ZBDongle-E); remove that line if not needed.
+
+```bash
+docker compose -f docker-compose-ha.yml up -d
+```
+
+Access the web UI via SSH tunnel:
+
+```bash
+ssh -fN -L 8123:127.0.0.1:8123 dobby@raspberrypi.local
+# Then open: http://localhost:8123
+```
+
+**Install HACS** (Home Assistant Community Store):
+
 ```bash
 sudo mkdir -p ~/homeassistant/config/custom_components
 sudo chown -R dobby:dobby ~/homeassistant/config/custom_components
 wget -O - https://get.hacs.xyz | bash -
 ```
 
-## Reachy Mini SDK
-Para o daemon do Reachy, a instalação nativa pode ser mais simples já que ele precisa de acesso direto a dispositivos de hardware (USB, microfone, câmera) — Docker com múltiplos devices passthrough pode ficar mais complicado.
+After setup, generate a **Long-Lived Access Token** in the HA UI (Profile → Security) and save it as `HA_TOKEN` in your `.env`.
+
+---
+
+## Reachy Mini SDK (Native Install)
+
+The Reachy daemon requires direct access to USB, microphone, and camera hardware. Native installation is simpler and more reliable than Docker for this component.
 
 ```bash
-# Passo 1 — Instalar dependências
+# Step 1 — System dependencies
 sudo apt install git git-lfs libportaudio2
 git lfs install
 
-# Passo 2 — Instalar o uv (gerenciador de Python)
+# Step 2 — Install uv (Python version manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Passo 3 — Instalar o Python 3.12
+# Step 3 — Install Python 3.12
 uv python install 3.12 --default
 
-# Passo 4 — Criar o ambiente virtual e instalar o SDK
+# Step 4 — Create virtualenv and install the SDK
 uv venv reachy_mini_env --python 3.12
 source reachy_mini_env/bin/activate
 uv pip install "reachy-mini"
 
-# Passo 5 — Permissões USB para o Reachy
+# Step 5 — USB permissions for Reachy hardware
 echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", MODE="0666", GROUP="dialout"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="38fb", ATTRS{idProduct}=="1001", MODE="0666", GROUP="dialout"' \
 | sudo tee /etc/udev/rules.d/99-reachy-mini.rules
@@ -97,7 +129,7 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="38fb", ATTRS{idProduct}=="1001", MODE="0666"
 sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo usermod -aG dialout $USER
 
-# Passo 6 — Instalar o GStreamer base
+# Step 6 — GStreamer base packages
 sudo apt-get update
 sudo apt-get install -y \
     libgstreamer-plugins-bad1.0-dev \
@@ -116,7 +148,7 @@ sudo apt-get install -y \
     python3-gi \
     python3-gi-cairo
 
-# Passo 7 — Atualizar GStreamer para 1.24 (necessário no Ubuntu 22.04)
+# Step 7 — Upgrade GStreamer to 1.24 (required on Ubuntu 22.04)
 sudo add-apt-repository ppa:savoury1/multimedia
 sudo apt update
 sudo apt install \
@@ -125,11 +157,11 @@ sudo apt install \
     libgstreamer-plugins-good1.0-dev \
     libgstreamer-plugins-bad1.0-dev
 
-# Passo 8 — Instalar o Rust (necessário para o plugin WebRTC)
+# Step 8 — Install Rust (required to compile the WebRTC plugin)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# Passo 9 — Compilar o plugin WebRTC
+# Step 9 — Compile the GStreamer WebRTC plugin
 git clone https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git
 cd gst-plugins-rs
 git checkout 0.14.1
@@ -138,18 +170,22 @@ sudo mkdir -p /opt/gst-plugins-rs
 sudo chown $USER /opt/gst-plugins-rs
 cargo cinstall -p gst-plugin-webrtc --prefix=/opt/gst-plugins-rs --release
 
-# Passo 10 — Configurar o PATH (ARM64)
+# Step 10 — Add plugin path to shell profile (ARM64)
 echo 'export GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:$GST_PLUGIN_PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-E agora precisamos garantir que o Daemon sempre funcione mesmo após o reinicio do Raspberry ou quando ocorre isso, para isso:
+### Reachy Daemon as a systemd Service
+
+To ensure the daemon starts automatically on boot and restarts on failure:
 
 ```bash
-# Crie o arquivo de serviço
 sudo nano /etc/systemd/system/reachy-mini-daemon.service
+```
 
-# Com o conteúdo abaixo
+Paste the following content:
+
+```ini
 [Unit]
 Description=Reachy Mini Daemon
 After=network.target
@@ -168,9 +204,39 @@ RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+```
 
-# Reinicia systemctl
+Enable and start:
+
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable reachy-mini-daemon
 sudo systemctl start reachy-mini-daemon
+
+# Check status
+sudo systemctl status reachy-mini-daemon
 ```
+
+---
+
+## Deploying the Bridge
+
+Clone the repository and configure the environment:
+
+```bash
+git clone <repo-url> ~/dobby-the-claw
+cd ~/dobby-the-claw
+cp .env.example .env
+nano .env  # Fill in OPENAI_API_KEY, REACHY_BRIDGE_URL, OPENCLAW_*, HA_* etc.
+```
+
+Run via Docker:
+
+```bash
+docker compose up --build -d
+
+# View logs
+docker compose logs -f
+```
+
+The `REACHY_BRIDGE_URL` in `.env` should point to the local Reachy daemon WebSocket (typically `ws://localhost:<port>`).

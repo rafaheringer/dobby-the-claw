@@ -52,45 +52,13 @@ There is no automated test suite; validation is manual/integration-based.
 
 ## Architecture
 
-### Ports & Adapters (enforced pattern)
+Full architecture reference (components, ports & adapters, state machine, data flow, tool list): [`docs/architecture.md`](docs/architecture.md).
 
-The runtime is strictly decoupled:
-- **Ports** (`src/bridge/runtime/ports.py`) — abstract interfaces: `ConversationSessionPort`, `RobotActionsPort`, `ToolRuntimePort`, `MediaIOPort`
-- **Adapters** (`src/bridge/runtime/adapters/`) — concrete implementations wiring to OpenAI, Reachy SDK, OpenClaw
-- **Orchestrator** (`src/bridge/runtime/orchestrator.py`) — depends only on ports, never on concrete infra
-
-Never add direct infra calls inside the orchestrator or state machine. New integrations go through a new port + adapter pair.
-
-### State Machine
-
-`src/bridge/state_machine.py` governs all interaction flow:
-
-```
-IDLE → LISTENING → THINKING → EXECUTING → IDLE
-                             ↘ DELEGATING ↗
-```
-
-All state transitions happen exclusively through `StateMachine` events (e.g., `WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`, `DELEGATION_STARTED`). Never mutate state directly.
-
-### Modes
-
-- `realtime_mode.py` — thin composition layer for OpenAI Realtime voice pipeline
-- `chat_mode.py` — thin composition layer for terminal text input
-- Shared behavior lives in `RuntimeOrchestrator`
-
-### Tools
-
-`src/bridge/tools/` — each tool implements `definition()` (OpenAI JSON schema) and `execute()`. Registered in a `ToolRegistry`. Built-in tools: `camera_snapshot`, `dance`, `express_emotion`, `go_to_sleep`, `openclaw_delegate`, `discover_home_devices`, `control_home_device`.
-
-### Reachy Integration
-
-`src/reachy/` contains:
-- `client.py` — typed action executor
-- `motion.py` — motion command queue (worker thread; don't block realtime callbacks)
-- `camera_worker.py` — MediaPipe hand/finger tracking in a background thread
-- `finger_antenna_controller.py` / `head_roll_controller.py` — peripheral controllers
-
-Audio queue and motion command queue run on separate threads. Never perform blocking work in realtime WebSocket callbacks.
+Key constraints to enforce:
+- **Ports & Adapters:** orchestrator (`orchestrator.py`) depends only on ports (`ports.py`), never on concrete infra. New integrations require a new port + adapter pair in `adapters/`.
+- **State machine:** all transitions go through `StateMachine` events — never mutate state directly.
+- **Realtime callbacks:** no blocking work; audio and motion run on separate queues/threads.
+- **Modes:** `realtime_mode.py` and `chat_mode.py` are thin composition layers — shared behavior belongs in `RuntimeOrchestrator`.
 
 ## Key Conventions
 
@@ -99,6 +67,10 @@ Audio queue and motion command queue run on separate threads. Never perform bloc
 - **Delegation:** When uncertain, the model uses `delegate_task` (OpenClaw) rather than refusing
 - **Home Assistant sensitive domains** (`lock`, `alarm_control_panel`, `cover`, `button`) require explicit user confirmation before executing
 - **Refactoring:** Prefer root-cause fixes over compatibility shims; remove dead code when safe
+
+## Deployment
+
+For full Raspberry Pi setup (hardware requirements, OpenClaw, Home Assistant, Reachy daemon, systemd service), see [`docs/raspberry-integration.md`](docs/raspberry-integration.md).
 
 ## Configuration
 
