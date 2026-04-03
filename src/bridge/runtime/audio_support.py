@@ -111,6 +111,7 @@ def build_wakeword_detector(config: BridgeConfig) -> OfflineWakewordDetector:
         auto_calibration_enabled=config.offline_wakeword_auto_calibration_enabled,
         calibration_seconds=config.offline_wakeword_calibration_seconds,
         calibration_multiplier=config.offline_wakeword_calibration_multiplier,
+        model_path=config.wakeword_model_path,
     )
 
 

@@ -52,6 +52,7 @@ class BridgeConfig:
     home_assistant_token: str
     home_assistant_timeout_s: float
     home_assistant_sensitive_domains: tuple[str, ...]
+    wakeword_model_path: str
 
 
     @staticmethod
@@ -121,4 +122,5 @@ class BridgeConfig:
                     "alarm_control_panel,lock,cover,security_system,button"
                 ).split(",") if domain.strip()
             ),
+            wakeword_model_path=os.getenv("WAKEWORD_MODEL_PATH", "").strip(),
         )

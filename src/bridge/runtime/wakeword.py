@@ -32,6 +32,7 @@ class OfflineWakewordDetector:
         auto_calibration_enabled: bool = True,
         calibration_seconds: float = 6.0,
         calibration_multiplier: float = 2.8,
+        model_path: str = "",
     ) -> None:
         """Configure local wakeword and fallback speech-energy detection."""
         self.enabled = bool(enabled)
@@ -50,6 +51,7 @@ class OfflineWakewordDetector:
         self._last_trigger_ts = 0.0
         self._speech_hits = 0
 
+        self._model_path = model_path.strip()
         self._model = None
         self._alias_model_names: set[str] = set()
         self._openwakeword_available = False
@@ -84,12 +86,22 @@ class OfflineWakewordDetector:
 
     def _try_init_openwakeword(self) -> None:
         """Try loading openWakeWord backend and mark availability state."""
+        if not self._model_path:
+            logger.info(
+                "Offline wakeword: no custom model configured (WAKEWORD_MODEL_PATH); using RMS fallback"
+            )
+            return
         try:
             model_module = importlib.import_module("openwakeword.model")
             model_cls = getattr(model_module, "Model")
-            self._model = model_cls()
+            self._model = model_cls(
+                wakeword_models=[self._model_path],
+                inference_framework="onnx",
+            )
             self._openwakeword_available = True
-            logger.info("Offline wakeword: openWakeWord initialized")
+            logger.info(
+                "Offline wakeword: openWakeWord initialized (model=%s)", self._model_path
+            )
         except Exception as exc:
             self._model = None
             self._openwakeword_available = False
