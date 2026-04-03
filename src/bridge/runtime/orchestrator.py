@@ -25,6 +25,7 @@ from bridge.runtime.audio_support import (
     require_sdk_instance,
     resolve_llm_api_key,
 )
+from homeassistant.home_assistant_client import HomeAssistantWsClient
 from bridge.runtime.common import apply_event
 from bridge.runtime.ports import (
     ConversationCallbacks,
@@ -57,6 +58,7 @@ class RuntimeOrchestrator:
         robot_actions: RobotActionsPort | None = None,
         tool_runtime: ToolRuntimePort | None = None,
         media_io: MediaIOPort | None = None,
+        ha_client: HomeAssistantWsClient | None = None,
     ) -> None:
         """Initialize shared runtime dependencies and orchestration state."""
         self.mode_name = mode_name
@@ -109,6 +111,7 @@ class RuntimeOrchestrator:
         self.realtime_output_rate = 24000
         self.input_sample_rate = self.media_io.get_input_audio_samplerate()
 
+        self._ha_client = ha_client
         self.tool_specs = self.tool_runtime.openai_specs()
         self.identity_prompt_runtime = self._build_runtime_identity_prompt(identity_prompt)
         self.wakeword = build_wakeword_detector(config)
@@ -304,6 +307,29 @@ class RuntimeOrchestrator:
             else:
                 logging.warning("[%dms] Failed to send post-recovery notice", self._elapsed_ms())
 
+    def _build_ha_catalog_section(self) -> str:
+        """Fetch HA entities and return a formatted catalog section, or empty string."""
+        if self._ha_client is None:
+            return ""
+        try:
+            entities = self._ha_client.get_catalog()
+            if not entities:
+                return ""
+            lines = "\n".join(
+                f"- {e['entity_id']} | {e['friendly_name']} | {e['state']}"
+                for e in entities
+            )
+            logging.info("HA catalog: %d entities injected into session", len(entities))
+            return (
+                "\n\n## DISPOSITIVOS HOME ASSISTANT DISPONÍVEIS\n"
+                f"{lines}\n"
+                "(Use control_home_device para controlar. "
+                "Use discover_home_devices para atributos detalhados ou estado atualizado.)"
+            )
+        except Exception as exc:
+            logging.warning("HA catalog fetch failed: %s", exc)
+            return ""
+
     def _build_runtime_identity_prompt(self, identity_prompt: str) -> str:
         """Append runtime tool guardrails to the base identity prompt."""
         tool_guardrails = [item.strip() for item in self.tool_runtime.runtime_guardrails() if item.strip()]
@@ -341,6 +367,9 @@ class RuntimeOrchestrator:
 
     def _start_active_session(self) -> None:
         """Create and start the active realtime session for the current mode."""
+        ha_section = self._build_ha_catalog_section()
+        identity = self.identity_prompt_runtime + ha_section
+
         callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
             on_user_transcript=(
@@ -355,7 +384,7 @@ class RuntimeOrchestrator:
         )
         self.realtime = self.conversation_factory.create(
             api_key=self.api_key,
-            identity_prompt=self.identity_prompt_runtime,
+            identity_prompt=identity,
             tool_specs=self.tool_specs,
             on_tool_call=self._execute_tool,
             callbacks=callbacks,

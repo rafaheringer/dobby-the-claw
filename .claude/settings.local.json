@@ -15,7 +15,10 @@
       "Bash(taskkill //PID 5616 //F)",
       "Bash(taskkill //PID 24432 //F)",
       "Bash(nc -zv localhost 7447)",
-      "Bash(C:/GITHUB/dobby-the-claw/.venv/Scripts/pip install:*)"
+      "Bash(C:/GITHUB/dobby-the-claw/.venv/Scripts/pip install:*)",
+      "Bash(PYTHONPATH=src python:*)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python:*)"
     ]
   }
 }

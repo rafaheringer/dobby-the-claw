@@ -43,6 +43,35 @@ class HomeAssistantWsClient:
             )
         )
 
+    def get_catalog(self, domains: list[str] | None = None) -> list[dict[str, Any]]:
+        """Return compact entity list (entity_id, friendly_name, state, domain)."""
+        return asyncio.run(self._get_catalog_async(domains=domains))
+
+    async def _get_catalog_async(self, domains: list[str] | None) -> list[dict[str, Any]]:
+        """Fetch states and return a flat catalog of entities."""
+        async with self._connect() as connection:
+            response = await self._send_command(connection, {"type": "get_states"})
+            states = response.get("result", [])
+            normalized_domains = {d.strip().lower() for d in (domains or []) if d.strip()}
+            catalog = []
+            for state in states:
+                if not isinstance(state, dict):
+                    continue
+                entity_id = str(state.get("entity_id", "")).strip()
+                if not entity_id or "." not in entity_id:
+                    continue
+                domain = entity_id.split(".", 1)[0].lower()
+                if normalized_domains and domain not in normalized_domains:
+                    continue
+                attributes = state.get("attributes") or {}
+                catalog.append({
+                    "entity_id": entity_id,
+                    "domain": domain,
+                    "friendly_name": attributes.get("friendly_name") or entity_id,
+                    "state": state.get("state", "unknown"),
+                })
+            return catalog
+
     def call_service(
         self,
         *,

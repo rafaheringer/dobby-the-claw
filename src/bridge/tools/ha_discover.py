@@ -20,12 +20,8 @@ class HomeAssistantDiscoverTool:
         return ToolDefinition(
             name="discover_home_devices",
             description=(
-                "Discover available home devices and the actions each device type supports, so you can "
-                "choose the correct device and command before executing an action."
-            ),
-            runtime_guardrail=(
-                "Use `discover_home_devices` before `control_home_device` when device IDs or action names "
-                "are unknown. Prefer selecting exact device/entity IDs returned by discovery."
+                "Fetch current state and detailed attributes for Home Assistant entities. "
+                "Use when you need up-to-date state, specific attributes, or available service schemas."
             ),
             parameters={
                 "type": "object",

@@ -10,6 +10,7 @@ from reachy.client import ReachyClient
 from reachy.motion import MotionManager
 from bridge.state_machine import StateMachine
 
+from bridge.runtime.ha_client_factory import build_ha_client
 from bridge.runtime.orchestrator import RuntimeOrchestrator
 
 
@@ -36,5 +37,6 @@ def run_chat_loop(
         idle_sleep_timeout_s=idle_sleep_timeout_s,
         interactive_text=True,
         active_mode_uses_mic_recording=False,
+        ha_client=build_ha_client(config),
     )
     orchestrator.run()
