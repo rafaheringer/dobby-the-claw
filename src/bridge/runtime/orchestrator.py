@@ -128,6 +128,17 @@ class RuntimeOrchestrator:
     def run(self) -> None:
         """Run the orchestrator event loop until interrupted/exit."""
         self._log_mode_start()
+
+        try:
+            self.robot_actions.enable_motors()
+        except Exception as exc:
+            logging.warning("[%dms] Failed to enable motors on startup: %s", self._elapsed_ms(), exc)
+
+        try:
+            self.robot_actions.wake_up()
+        except Exception as exc:
+            logging.warning("[%dms] Failed to wake_up on startup: %s", self._elapsed_ms(), exc)
+
         self._start_active_session()
 
         if self.interactive_text and not self._skip_stdin:
