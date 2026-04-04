@@ -211,6 +211,22 @@ class ReachyClient:
             return
         raise RuntimeError("Reachy SDK instance does not expose goto_sleep/sleep")
 
+    def disable_motors(self) -> None:
+        """Cut torque on all motors (compliant/free mode) to save power."""
+        if not self._use_sdk:
+            return
+        mini: Any = self.get_sdk_instance()
+        if hasattr(mini, "disable_motors"):
+            mini.disable_motors()
+
+    def enable_motors(self) -> None:
+        """Re-energize all motors after sleep."""
+        if not self._use_sdk:
+            return
+        mini: Any = self.get_sdk_instance()
+        if hasattr(mini, "enable_motors"):
+            mini.enable_motors()
+
     def set_output_volume(self, volume: int) -> None:
         """Set Reachy speaker output volume on Linux via `amixer`."""
         if not self._use_sdk:

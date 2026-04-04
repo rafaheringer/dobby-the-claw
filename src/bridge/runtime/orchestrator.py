@@ -468,6 +468,11 @@ class RuntimeOrchestrator:
         except Exception as exc:
             logging.warning("[%dms] Failed to send goto_sleep: %s", self._elapsed_ms(), exc)
 
+        try:
+            self.robot_actions.disable_motors()
+        except Exception as exc:
+            logging.warning("[%dms] Failed to disable motors: %s", self._elapsed_ms(), exc)
+
         if not self.recording_started:
             try:
                 self.media_io.start_recording()
@@ -502,6 +507,11 @@ class RuntimeOrchestrator:
             self.recording_started = False
 
         try:
+            self.robot_actions.enable_motors()
+        except Exception as exc:
+            logging.warning("[%dms] Failed to enable motors: %s", self._elapsed_ms(), exc)
+
+        try:
             self.robot_actions.wake_up()
         except Exception as exc:
             logging.warning("[%dms] Failed to send wake_up: %s", self._elapsed_ms(), exc)
@@ -514,6 +524,13 @@ class RuntimeOrchestrator:
         self._start_active_session()
         self._mark_user_activity()
         self.sleeping = False
+
+        if self.realtime is not None:
+            self.realtime.send_text(
+                "SYSTEM NOTICE (não é mensagem do usuário): você acabou de ser acordado pelo wakeword. "
+                "Diga algo breve em português para avisar que está acordado e pronto para ajudar. "
+                "Seja fiel ao seu personagem."
+            )
 
     def _drain_text_queue(self) -> bool:
         """Process queued chat text inputs and return True when exit requested."""

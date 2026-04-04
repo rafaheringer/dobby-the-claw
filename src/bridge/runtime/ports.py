@@ -84,6 +84,14 @@ class RobotActionsPort(Protocol):
         """Send robot to sleep posture."""
         ...
 
+    def disable_motors(self) -> None:
+        """Cut torque on all motors to save power."""
+        ...
+
+    def enable_motors(self) -> None:
+        """Re-energize all motors."""
+        ...
+
 
 class ToolRuntimePort(Protocol):
     """Abstract tool runtime interface used by orchestration."""

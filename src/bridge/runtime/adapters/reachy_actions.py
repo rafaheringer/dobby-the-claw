@@ -40,3 +40,11 @@ class ReachyRobotActions(RobotActionsPort):
     def goto_sleep(self) -> None:
         """Send Reachy to sleep posture."""
         self._reachy.goto_sleep()
+
+    def disable_motors(self) -> None:
+        """Cut torque on all motors."""
+        self._reachy.disable_motors()
+
+    def enable_motors(self) -> None:
+        """Re-energize all motors."""
+        self._reachy.enable_motors()
