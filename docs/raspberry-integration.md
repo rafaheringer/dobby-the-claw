@@ -46,31 +46,57 @@ Log out and back in, then verify: `docker ps`
 
 ## OpenClaw
 
-Use the containerized (Docker) version. OpenClaw handles long-running or complex task delegation from the bridge.
+OpenClaw handles long-running or complex task delegation from the bridge. Run the containerized version built from source (required for the home-assistant skill and Docker CLI exec support).
+
+### Initial install
 
 ```bash
 git clone https://github.com/openclaw/openclaw.git ~/openclaw
 cd ~/openclaw
-
-export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
+cp .env.example .env
+# Edit .env: set OPENCLAW_GATEWAY_TOKEN and any other required vars
 ./scripts/docker/setup.sh
 ```
 
-**Save the bearer token** shown during setup — it goes into your `.env` as `OPENCLAW_BEARER_TOKEN`.
+**Save the bearer token** shown during setup — it goes into `dobby-the-claw/.env` as `OPENCLAW_BEARER_TOKEN`.
 
-To access the OpenClaw web UI, forward the port via SSH tunnel:
+### Automated setup (skills + exec config)
+
+After the initial OpenClaw install and after filling in `dobby-the-claw/.env` (including `HA_URL` and `HA_TOKEN`), run the setup script from the project root **on the Pi**:
+
+```bash
+./scripts/setup-openclaw.sh
+```
+
+This script handles everything in one shot:
+- Rebuilds the OpenClaw image with Docker CLI support (required for gateway exec host)
+- Installs the `home-assistant` skill from clawhub
+- Downloads `jq` into the persistent workspace
+- Creates the HA credentials config in the workspace
+- Applies exec settings (`tools.exec.host=gateway`, `security=full`, `ask=on-miss`)
+- Sets `exec-approvals.json` `askFallback=full` (auto-approve when no UI, e.g. WhatsApp)
+- Copies `docker-compose.openclaw.yml` → `~/openclaw/docker-compose.override.yml`
+
+> **Note:** The gateway takes ~2 minutes to become healthy after (re)start. Check with `curl http://localhost:18789/healthz`.
+
+### Web UI access
+
+Forward the port via SSH tunnel:
 
 ```bash
 ssh -fN -L 18789:127.0.0.1:18789 dobby@raspberrypi.local
 # Then open: http://localhost:18789
 ```
 
-To access the OpenClaw CLI:
+### Key exec configuration (applied by setup script)
 
-```bash
-docker ps                              # find the container name/ID
-docker exec -it <container_name> bash
-```
+| Setting | Value | Why |
+|---|---|---|
+| `tools.exec.host` | `gateway` | Runs commands inside the gateway container, which has LAN access |
+| `tools.exec.security` | `full` | No allowlist check — auto-approves all commands |
+| `tools.exec.ask` | `on-miss` | Shows approval prompt in UI when triggered from web |
+| `exec-approvals askFallback` | `full` | Auto-approves when no UI is available (e.g. WhatsApp) |
+| `agents.defaults.sandbox.mode` | `off` | Sandbox uses gateway exec, not an isolated container |
 
 ---
 
