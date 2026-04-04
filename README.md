@@ -75,7 +75,13 @@ The easiest path is the **official Colab notebook**, which handles all dependenc
 6. Set in `.env`:
 
 ```env
-WAKEWORD_MODEL_PATH=models/wakeword/dobby.onnx
+WAKEWORD_MODEL_PATH=../models/wakeword/dobby.onnx
+```
+
+7. Download the openWakeWord feature extraction models (required once, ~5 MB):
+
+```bash
+python -c "import openwakeword.utils; openwakeword.utils.download_models([])"
 ```
 
 For a fully local training setup, see the [openWakeWord training docs](https://github.com/dscripka/openWakeWord/blob/main/docs/training.md).

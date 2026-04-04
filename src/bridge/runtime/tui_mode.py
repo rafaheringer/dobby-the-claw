@@ -33,6 +33,17 @@ def run_tui_loop(
     """Run the bridge with a live TUI dashboard (status + logs + text input)."""
     log_queue: queue.Queue[logging.LogRecord] = queue.Queue()
 
+    # Set up log routing BEFORE creating the orchestrator so that init-time
+    # logs (wakeword, SDK connection, etc.) are captured in the TUI panel.
+    root_logger = logging.getLogger()
+    tui_handler = TUILogHandler(log_queue)
+    tui_handler.setFormatter(logging.Formatter())
+    original_handlers = root_logger.handlers[:]
+    for h in original_handlers:
+        if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr):
+            root_logger.removeHandler(h)
+    root_logger.addHandler(tui_handler)
+
     orchestrator = RuntimeOrchestrator(
         mode_name="TUI",
         state_machine=state_machine,
@@ -55,16 +66,6 @@ def run_tui_loop(
         log_queue=log_queue,
         mode_name="realtime",
     )
-
-    # Route all log output through the TUI queue; suppress terminal stream handlers
-    root_logger = logging.getLogger()
-    tui_handler = TUILogHandler(log_queue)
-    tui_handler.setFormatter(logging.Formatter())
-    original_handlers = root_logger.handlers[:]
-    for h in original_handlers:
-        if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr):
-            root_logger.removeHandler(h)
-    root_logger.addHandler(tui_handler)
 
     # Run orchestrator in background daemon thread
     orch_thread = threading.Thread(target=orchestrator.run, daemon=True, name="orchestrator")

@@ -101,6 +101,9 @@ class RuntimeOrchestrator:
         self.recording_started = False
         self.sleeping = False
         self.sleep_after_response = threading.Event()
+        self._sleep_drain_at: float = 0.0  # monotonic timestamp; >0 means sleep is pending
+        self._play_start_ts: float = 0.0   # when start_playing() was called for current response
+        self._queued_samples: int = 0      # samples queued since last speech start (at realtime_output_rate)
         self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
         self.realtime_recovery_requested = False
@@ -147,6 +150,7 @@ class RuntimeOrchestrator:
                     self.realtime.feed_audio(self.input_sample_rate, sample)
 
                 previous_responses_streamed = self.responses_streamed
+                prev_playback = self.playback_started
                 self.playback_started, self.audio_chunks_total, self.responses_streamed = process_audio_queue(
                     audio_queue=self.audio_queue,
                     media_io=self.media_io,
@@ -159,11 +163,23 @@ class RuntimeOrchestrator:
                     state_machine=self.state_machine,
                     motion_manager=self.motion_manager,
                 )
+                if self.playback_started and not prev_playback:
+                    self._play_start_ts = time.monotonic()
+
                 if (
                     self.sleep_after_response.is_set()
                     and self.responses_streamed > previous_responses_streamed
                 ):
                     self.sleep_after_response.clear()
+                    # Calculate exact drain time from queued samples + 200 ms GStreamer buffer allowance
+                    if self._play_start_ts > 0.0 and self._queued_samples > 0:
+                        play_duration = self._queued_samples / self.realtime_output_rate
+                        self._sleep_drain_at = self._play_start_ts + play_duration + 0.2
+                    else:
+                        self._sleep_drain_at = time.monotonic() + 1.0
+
+                if self._sleep_drain_at > 0.0 and time.monotonic() >= self._sleep_drain_at:
+                    self._sleep_drain_at = 0.0
                     self._enter_sleep_mode()
                     continue
 
@@ -228,6 +244,8 @@ class RuntimeOrchestrator:
         """Handle speech-start callback from conversation session."""
         logging.debug("[%dms] Callback speech_start", self._elapsed_ms())
         self._mark_user_activity()
+        self._queued_samples = 0
+        self._play_start_ts = 0.0
         self.audio_queue.put(("force_stop", None))
         try:
             apply_event(self.state_machine, Event.WAKE_WORD, self.motion_manager)
@@ -251,6 +269,10 @@ class RuntimeOrchestrator:
 
     def _on_assistant_audio_chunk(self, chunk) -> None:
         """Queue one streamed assistant audio chunk for playback."""
+        try:
+            self._queued_samples += int(getattr(chunk, "size", len(chunk)))
+        except Exception:
+            pass
         self.audio_queue.put(("chunk", chunk))
 
     def _on_assistant_audio_done(self) -> None:
@@ -469,6 +491,7 @@ class RuntimeOrchestrator:
 
     def _wake_from_sleep_mode(self) -> None:
         """Wake runtime from sleep mode and restore active realtime session."""
+        self._sleep_drain_at = 0.0
         logging.info("[%dms] Offline wakeword detected, waking up", self._elapsed_ms())
 
         if self.recording_started:
