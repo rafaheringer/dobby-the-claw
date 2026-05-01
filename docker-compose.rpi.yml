@@ -1,0 +1,7 @@
+services:
+  bridge:
+    platform: linux/arm64
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio

@@ -1,0 +1,13 @@
+services:
+  bridge:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Face profiles — persists enrolled speakers across restarts/rebuilds
+      - ${HOME:-/home/dobby}/.dobby:/root/.dobby
+      # InsightFace model cache (~50 MB) — avoids re-download on every restart
+      - ${HOME:-/home/dobby}/.insightface:/root/.insightface
+      # Optional: custom wakeword .onnx model (set WAKEWORD_MODEL_PATH=models/xxx.onnx in .env)
+      - ./models:/app/models:ro
