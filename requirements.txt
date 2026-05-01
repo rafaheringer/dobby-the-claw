@@ -9,3 +9,4 @@ textual>=0.80.0
 insightface>=0.7.3
 onnxruntime>=1.16.3
 opencv-contrib-python>=4.8.0
+mem0ai>=0.1.0

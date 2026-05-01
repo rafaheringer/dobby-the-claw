@@ -95,6 +95,17 @@ class RuntimeOrchestrator:
             self.motion_manager.set_state(self.state_machine.state)
 
         self._current_speaker: str | None = None
+        self._session_messages: list[dict] = []
+
+        self._speaker_memory = None
+        if config.speaker_memory_enabled:
+            import os as _os
+            from bridge.speaker_memory import SpeakerMemory
+            self._speaker_memory = SpeakerMemory(
+                storage_dir=_os.path.expanduser(config.speaker_memory_dir),
+                extraction_model=config.speaker_memory_model,
+                api_key=self.api_key,
+            )
 
         self.audio_queue: "Queue[tuple[str, Any]]" = Queue()
         self.text_queue: "Queue[str]" = Queue()
@@ -317,6 +328,8 @@ class RuntimeOrchestrator:
         except Exception as exc:
             logging.warning("[%dms] gesture.think failed: %s", self._elapsed_ms(), exc)
         if source == "said":
+            if text:
+                self._session_messages.append({"role": "user", "content": text})
             self._maybe_inject_speaker_change()
 
     def _maybe_inject_speaker_change(self) -> None:
@@ -346,6 +359,8 @@ class RuntimeOrchestrator:
         """Log assistant text responses emitted by realtime session."""
         logging.info("[%dms] Assistant text: %s", self._elapsed_ms(), text)
         _conv_log.info("Dobby ❯ %s", text)
+        if text:
+            self._session_messages.append({"role": "assistant", "content": text})
 
     def _on_assistant_audio_chunk(self, chunk) -> None:
         """Queue one streamed assistant audio chunk for playback."""
@@ -457,10 +472,18 @@ class RuntimeOrchestrator:
                 "\n\n## FALANTE ATUAL\n"
                 "A pessoa que ativou o wakeword não foi reconhecida (visitante)."
             )
-        return (
+        section = (
             "\n\n## FALANTE ATUAL\n"
             f"A pessoa que ativou o wakeword foi identificada como: {self._current_speaker}."
         )
+        if self._speaker_memory and self._speaker_memory.available:
+            memories = self._speaker_memory.load(self._current_speaker)
+            if memories:
+                section += (
+                    f"\n\n## O QUE VOCÊ JÁ SABE SOBRE {self._current_speaker.upper()}\n"
+                    f"{memories}"
+                )
+        return section
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Execute one tool call and apply delegation/sleep side effects."""
@@ -587,6 +610,12 @@ class RuntimeOrchestrator:
         apply_event(self.state_machine, Event.RESET, self.motion_manager)
         self.sleeping = True
         self.wakeword.reset()
+
+        if self._speaker_memory and self._current_speaker:
+            from reachy.face_recognizer import FaceRecognizer
+            if self._current_speaker != FaceRecognizer.UNKNOWN:
+                self._speaker_memory.save_async(self._current_speaker, self._session_messages)
+        self._session_messages = []
 
     def _queue_sleep_request(self) -> None:
         """Request entering sleep mode after the current response is completed."""
