@@ -41,6 +41,7 @@ def build_tool_runtime(
     config: BridgeConfig,
     camera_worker: Optional[CameraWorker],
     motion_manager: Optional[MotionManager],
+    speaker_memory=None,
 ) -> ToolRuntimePort:
     """Build default tool runtime adapter from runtime config."""
-    return ToolRegistryRuntime(build_tool_registry(config, camera_worker, motion_manager))
+    return ToolRegistryRuntime(build_tool_registry(config, camera_worker, motion_manager, speaker_memory=speaker_memory))

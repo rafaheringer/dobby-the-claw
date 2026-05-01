@@ -52,6 +52,7 @@ def build_tool_registry(
     config: BridgeConfig,
     camera_worker: Optional[CameraWorker],
     motion_manager: Optional[MotionManager],
+    speaker_memory=None,
 ) -> ToolRegistry:
     """Build and populate runtime tool registry based on config."""
     tool_registry = ToolRegistry()
@@ -70,6 +71,9 @@ def build_tool_registry(
         and getattr(camera_worker, "_face_recognizer", None) is not None
     ):
         tool_registry.register(EnrollSpeakerTool(camera_worker))
+    if speaker_memory is not None and speaker_memory.available:
+        from bridge.tools.remember_fact import RememberFactTool
+        tool_registry.register(RememberFactTool(speaker_memory, camera_worker))
     if DANCE_AVAILABLE and motion_manager is not None:
         tool_registry.register(DanceTool(motion_manager))
     if config.openclaw_enabled and config.openclaw_ws_url:

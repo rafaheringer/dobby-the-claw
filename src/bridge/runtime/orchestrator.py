@@ -79,9 +79,6 @@ class RuntimeOrchestrator:
         self.wake_on_startup = wake_on_startup
         self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
-        self.tool_runtime = tool_runtime or build_tool_runtime(
-            config, camera_worker, motion_manager
-        )
 
         if media_io is None:
             require_sdk_instance(mode_name, reachy_sdk_instance)
@@ -90,9 +87,6 @@ class RuntimeOrchestrator:
             self.media_io = media_io
 
         self.api_key = resolve_llm_api_key(config)
-
-        if self.motion_manager is not None:
-            self.motion_manager.set_state(self.state_machine.state)
 
         self._current_speaker: str | None = None
         self._session_messages: list[dict] = []
@@ -106,6 +100,13 @@ class RuntimeOrchestrator:
                 extraction_model=config.speaker_memory_model,
                 api_key=self.api_key,
             )
+
+        self.tool_runtime = tool_runtime or build_tool_runtime(
+            config, camera_worker, motion_manager, speaker_memory=self._speaker_memory
+        )
+
+        if self.motion_manager is not None:
+            self.motion_manager.set_state(self.state_machine.state)
 
         self.audio_queue: "Queue[tuple[str, Any]]" = Queue()
         self.text_queue: "Queue[str]" = Queue()

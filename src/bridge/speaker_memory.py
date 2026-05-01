@@ -41,8 +41,12 @@ class SpeakerMemory:
                     "config": {
                         "collection_name": "dobby_speaker_memories",
                         "path": storage_dir,
+                        "on_disk": True,
                     },
                 },
+                # Without this, mem0 uses an in-memory SQLite for metadata.
+                # On restart get_all() returns nothing even if Qdrant has vectors.
+                "history_db_path": os.path.join(storage_dir, "history.db"),
             }
             self._mem = _Mem0Memory.from_config(config)
             logger.info("SpeakerMemory ready (model=%s, dir=%s)", extraction_model, storage_dir)
@@ -74,6 +78,12 @@ class SpeakerMemory:
             logger.warning("SpeakerMemory.load failed for '%s': %s", speaker, exc)
             return ""
 
+    def save_fact(self, speaker: str, fact: str) -> None:
+        """Persist a single explicit fact for a speaker in a background thread."""
+        if not self.available or not fact.strip():
+            return
+        threading.Thread(target=self._save_fact, args=(speaker, fact.strip()), daemon=True).start()
+
     def save_async(self, speaker: str, messages: list[dict]) -> None:
         """Extract and persist facts from session messages in a background thread."""
         if not self.available or len(messages) < 2:
@@ -88,3 +98,10 @@ class SpeakerMemory:
             logger.info("SpeakerMemory: saved session for '%s' (%d turns)", speaker, len(messages))
         except Exception as exc:
             logger.warning("SpeakerMemory.save failed for '%s': %s", speaker, exc)
+
+    def _save_fact(self, speaker: str, fact: str) -> None:
+        try:
+            self._mem.add([{"role": "user", "content": fact}], user_id=speaker)  # type: ignore[union-attr]
+            logger.info("SpeakerMemory: saved fact for '%s': %s", speaker, fact)
+        except Exception as exc:
+            logger.warning("SpeakerMemory.save_fact failed for '%s': %s", speaker, exc)
