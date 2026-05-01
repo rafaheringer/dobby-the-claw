@@ -47,8 +47,15 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
     reachy_sdk_instance = None
     camera_worker = None
     motion_manager = None
+    is_sdk_runtime = config.reachy_bridge_url.strip().lower().startswith("sdk")
 
-    if config.reachy_bridge_url.strip().lower().startswith("sdk"):
+    if config.vision_debug_window and not is_sdk_runtime:
+        logging.warning(
+            "Vision debug window requested, but REACHY_BRIDGE_URL=%s is not an SDK runtime",
+            config.reachy_bridge_url,
+        )
+
+    if is_sdk_runtime:
         try:
             reachy_sdk_instance = reachy.get_sdk_instance()
             head_tracker = _build_head_tracker()
@@ -64,7 +71,8 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                 reachy_sdk_instance,
                 camera_worker=camera_worker,
             )
-        except Exception:
+        except Exception as exc:
+            logging.warning("Failed to initialize Reachy SDK runtime: %s", exc)
             reachy_sdk_instance = None
             camera_worker = None
             motion_manager = None

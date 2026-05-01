@@ -8,6 +8,7 @@ and smoothly interpolate back to neutral when tracking is lost.
 
 import logging
 import os
+import platform
 import threading
 import time
 from typing import Any, List, Optional, Tuple
@@ -74,6 +75,16 @@ class CameraWorker:
         self._debug_window_failed = False
         self._debug_log_interval_s = max(0.2, float(debug_log_interval_s))
         self._last_debug_log_ts = 0.0
+        self._last_missing_frame_log_ts = 0.0
+        self._missing_frame_since_ts: float | None = None
+        self._allow_local_camera_fallback = bool(
+            platform.system() == "Windows" and self._debug_visual_window and cv2 is not None
+        )
+        self._local_camera_capture = None
+        self._local_camera_index: int | None = None
+        self._using_local_camera_fallback = False
+        self._last_local_camera_probe_ts = 0.0
+        self._local_camera_retry_interval_s = 2.0
         self._configure_debug_window_environment()
 
         self._head_tracker_missing_logged = False
@@ -155,6 +166,7 @@ class CameraWorker:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
+        self._close_local_camera_fallback()
         self._finger_antenna_controller.close()
         if self._debug_visual_window and cv2 is not None:
             try:
@@ -200,9 +212,15 @@ class CameraWorker:
         while not self._stop_event.is_set():
             try:
                 current_time = time.time()
-                frame = self.reachy_mini.media.get_frame()
+                frame = self._read_camera_frame(current_time)
 
-                if frame is not None:
+                if frame is None:
+                    if self._missing_frame_since_ts is None:
+                        self._missing_frame_since_ts = current_time
+                    self._maybe_emit_missing_frame_log(current_time)
+                    self._render_debug_placeholder(current_time)
+                else:
+                    self._missing_frame_since_ts = None
                     with self.frame_lock:
                         self.latest_frame = frame
 
@@ -340,6 +358,85 @@ class CameraWorker:
                 time.sleep(0.1)
 
         logger.debug("Camera worker thread exited")
+
+    def _read_camera_frame(self, current_time: float) -> NDArray[np.uint8] | None:
+        """Read a frame from Reachy SDK or Windows local webcam fallback."""
+        frame = self.reachy_mini.media.get_frame()
+        if frame is not None:
+            if self._using_local_camera_fallback:
+                logger.info("Reachy SDK camera frames recovered; disabling local camera fallback")
+                self._close_local_camera_fallback()
+            return frame
+
+        return self._read_local_camera_fallback(current_time)
+
+    def _read_local_camera_fallback(self, current_time: float) -> NDArray[np.uint8] | None:
+        """Read from a local Windows webcam when SDK frames are unavailable."""
+        if not self._allow_local_camera_fallback or cv2 is None:
+            return None
+
+        capture = self._local_camera_capture
+        if capture is None:
+            if (current_time - self._last_local_camera_probe_ts) < self._local_camera_retry_interval_s:
+                return None
+            self._last_local_camera_probe_ts = current_time
+            capture = self._open_local_camera_fallback()
+            if capture is None:
+                return None
+
+        ok, frame = capture.read()
+        if not ok or frame is None:
+            logger.warning("Local camera fallback failed to read a frame; retrying")
+            self._close_local_camera_fallback()
+            return None
+
+        return np.asarray(frame, dtype=np.uint8)
+
+    def _open_local_camera_fallback(self):
+        """Open the first usable Windows webcam for debug fallback."""
+        if cv2 is None:
+            return None
+
+        backend_candidates = []
+        if platform.system() == "Windows":
+            backend_candidates.append(cv2.CAP_DSHOW)
+        backend_candidates.append(cv2.CAP_ANY)
+
+        for index in (0, 1, 2):
+            for backend in backend_candidates:
+                capture = cv2.VideoCapture(index, backend)
+                if not capture.isOpened():
+                    capture.release()
+                    continue
+
+                ok, frame = capture.read()
+                if ok and frame is not None:
+                    self._local_camera_capture = capture
+                    self._local_camera_index = index
+                    self._using_local_camera_fallback = True
+                    logger.warning(
+                        "Reachy SDK camera unavailable; using local Windows camera index=%s for debug",
+                        index,
+                    )
+                    return capture
+
+                capture.release()
+
+        logger.warning("Reachy SDK camera unavailable and no local Windows camera fallback was opened")
+        return None
+
+    def _close_local_camera_fallback(self) -> None:
+        """Release local webcam fallback resources."""
+        capture = self._local_camera_capture
+        self._local_camera_capture = None
+        self._local_camera_index = None
+        self._using_local_camera_fallback = False
+        if capture is None:
+            return
+        try:
+            capture.release()
+        except Exception:
+            pass
 
     def _get_tracking_target(self, frame: NDArray[np.uint8]) -> Optional[Tuple[np.ndarray, float]]:
         """Return face target center and head tilt roll estimate in radians."""
@@ -497,6 +594,74 @@ class CameraWorker:
             snapshot["antenna_finger_offsets"][1],
         )
 
+    def _maybe_emit_missing_frame_log(self, current_time: float) -> None:
+        """Log camera starvation periodically when debug mode is enabled."""
+        if not self._debug_visual_window:
+            return
+        if (current_time - self._last_missing_frame_log_ts) < self._debug_log_interval_s:
+            return
+        self._last_missing_frame_log_ts = current_time
+        if self._using_local_camera_fallback:
+            logger.info(
+                "Vision debug window is using local Windows camera fallback (index=%s)",
+                self._local_camera_index,
+            )
+            return
+        logger.info("Vision debug window is waiting for camera frames from Reachy SDK")
+
+    def _render_debug_placeholder(self, current_time: float) -> None:
+        """Render a placeholder window while waiting for the first camera frame."""
+        if not self._debug_visual_window or cv2 is None or self._debug_window_failed:
+            return
+        try:
+            vis = np.zeros((360, 640, 3), dtype=np.uint8)
+            elapsed = 0.0 if self._missing_frame_since_ts is None else max(0.0, current_time - self._missing_frame_since_ts)
+            cv2.putText(
+                vis,
+                "Reachy Vision Debug",
+                (24, 48),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                vis,
+                "Waiting for camera frames from Reachy SDK...",
+                (24, 108),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.75,
+                (0, 215, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                vis,
+                f"head_tracking={self.is_head_tracking_enabled} elapsed={elapsed:.1f}s",
+                (24, 152),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (180, 180, 180),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                vis,
+                "If this stays blank, inspect the remote daemon camera stream.",
+                (24, 210),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (180, 180, 180),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.imshow(self._debug_window_name, vis)
+            cv2.waitKey(1)
+        except Exception as exc:
+            self._debug_window_failed = True
+            logger.warning("Vision debug window disabled after failure: %s", exc)
+
     def _render_debug_visual(self, frame: NDArray[np.uint8]) -> None:
         """Render optional visual overlay to inspect face detection and target mapping."""
         if not self._debug_visual_window or cv2 is None or self._debug_window_failed:
@@ -517,7 +682,11 @@ class CameraWorker:
                 offsets = tuple(self.face_tracking_offsets)
             face_detected = self.last_face_detected_time is not None and (time.time() - self.last_face_detected_time) <= self.face_lost_delay
             status_color = (0, 220, 0) if face_detected else (0, 0, 220)
-            status_text = f"tracking={self.is_head_tracking_enabled} face={face_detected} lock={self._roll_controller.is_neutral_locked}"
+            frame_source = "local" if self._using_local_camera_fallback else "reachy"
+            status_text = (
+                f"source={frame_source} tracking={self.is_head_tracking_enabled} "
+                f"face={face_detected} lock={self._roll_controller.is_neutral_locked}"
+            )
             cv2.putText(vis, status_text, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2, cv2.LINE_AA)
             cv2.putText(
                 vis,
