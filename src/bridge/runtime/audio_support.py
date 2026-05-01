@@ -18,6 +18,7 @@ from bridge.tools import (
     CameraSnapshotTool,
     DanceTool,
     EmotionTool,
+    EnrollSpeakerTool,
     GoToSleepTool,
     HomeAssistantDiscoverTool,
     HomeAssistantExecuteActionTool,
@@ -63,6 +64,12 @@ def build_tool_registry(
     tool_registry.register(EmotionTool(motion_manager))
     if config.camera_tool_enabled and camera_worker is not None:
         tool_registry.register(CameraSnapshotTool(camera_worker))
+    if (
+        config.speaker_id_enabled
+        and camera_worker is not None
+        and getattr(camera_worker, "_face_recognizer", None) is not None
+    ):
+        tool_registry.register(EnrollSpeakerTool(camera_worker))
     if DANCE_AVAILABLE and motion_manager is not None:
         tool_registry.register(DanceTool(motion_manager))
     if config.openclaw_enabled and config.openclaw_ws_url:

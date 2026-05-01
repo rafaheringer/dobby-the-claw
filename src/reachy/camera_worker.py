@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation as R
 
 from reachy_mini.utils.interpolation import linear_pose_interpolation
+from reachy.face_recognizer import FaceRecognizer
 from reachy.finger_antenna_controller import FingerAntennaController
 from reachy.head_roll_controller import HeadRollController
 
@@ -25,6 +26,11 @@ try:
     import cv2
 except ImportError:  # pragma: no cover - optional dependency
     cv2 = None
+
+try:
+    from reachy_mini.media.audio_doa import AudioDoA as _AudioDoA
+except ImportError:  # pragma: no cover - hardware optional
+    _AudioDoA = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,8 @@ class CameraWorker:
         debug_log_interval_s: float = 1.0,
         antenna_finger_tracking_enabled: bool = True,
         antenna_finger_max_angle_deg: float = 28.0,
+        face_recognizer: Optional[FaceRecognizer] = None,
+        audio_doa_enabled: bool = True,
     ) -> None:
         """Initialize camera worker dependencies and tracking state."""
         self.reachy_mini = reachy_mini
@@ -113,6 +121,24 @@ class CameraWorker:
         self._hand_control_offsets: Tuple[float, float] = (0.0, 0.0)
         self._last_index_finger_count = 0
 
+        # Speaker identification
+        self._face_recognizer = face_recognizer
+        self._current_speaker: str | None = None
+        self._speaker_lock = threading.Lock()
+        self._last_identify_ts: float = 0.0
+        self._identify_interval_s: float = 10.0
+
+        # Audio Direction-of-Arrival for steering head toward speaker
+        self._audio_doa: Optional[object] = None
+        self._doa_target_yaw_rad: float | None = None
+        self._doa_active_until: float = 0.0
+        if audio_doa_enabled and _AudioDoA is not None:
+            try:
+                self._audio_doa = _AudioDoA()
+                logger.info("AudioDoA initialized")
+            except Exception as exc:
+                logger.debug("AudioDoA not available: %s", exc)
+
     def _configure_debug_window_environment(self) -> None:
         """Prepare Qt env vars to reduce noisy warnings in OpenCV debug windows."""
         if not self._debug_visual_window:
@@ -153,6 +179,77 @@ class CameraWorker:
         """Enable or disable head tracking updates."""
         self.is_head_tracking_enabled = enabled
         logger.info("Head tracking %s", "enabled" if enabled else "disabled")
+
+    def get_current_speaker(self) -> str | None:
+        """Return the last identified speaker name, or None if unknown."""
+        with self._speaker_lock:
+            return self._current_speaker
+
+    def identify_current_speaker(self, wait_s: float = 0.8) -> str | None:
+        """Activate DOA steering, wait for head to turn, then identify speaker.
+
+        Returns the speaker name (or FaceRecognizer.UNKNOWN for unrecognized
+        faces), or None if face recognition is not available.
+        """
+        if self._face_recognizer is None or not self._face_recognizer.available:
+            return None
+
+        if self._audio_doa is not None:
+            self._activate_doa_steering(duration_s=max(wait_s + 1.0, 2.5))
+
+        time.sleep(max(0.1, float(wait_s)))
+
+        frame = self.get_latest_frame()
+        if frame is None:
+            return None
+
+        name, confidence = self._face_recognizer.identify(frame)
+        logger.info("Speaker ID: %s (similarity=%.2f)", name, confidence)
+
+        with self._speaker_lock:
+            self._current_speaker = name
+        return name
+
+    def _activate_doa_steering(self, duration_s: float = 2.5) -> None:
+        """Read DOA and activate temporary yaw steering toward the sound source."""
+        try:
+            angle_rad, speech_detected = self._audio_doa.get_DoA()  # type: ignore[union-attr]
+            # Mapping: π/2 = front (yaw=0), 0 = left (+yaw), π = right (-yaw)
+            yaw_target = float(np.clip(-(angle_rad - np.pi / 2) * 0.8, -1.2, 1.2))
+            self._doa_target_yaw_rad = yaw_target
+            self._doa_active_until = time.time() + duration_s
+            logger.info(
+                "DOA steering: angle=%.2f rad speech=%s → yaw_target=%.2f rad",
+                angle_rad, speech_detected, yaw_target,
+            )
+        except Exception as exc:
+            logger.debug("DOA steering failed: %s", exc)
+
+    def _maybe_identify_face_background(self, frame: NDArray, current_time: float) -> None:
+        """Spawn background thread to identify face and update current speaker."""
+        if self._face_recognizer is None or not self._face_recognizer.available:
+            return
+        if (current_time - self._last_identify_ts) < self._identify_interval_s:
+            return
+        self._last_identify_ts = current_time
+        frame_copy = frame.copy()
+        threading.Thread(
+            target=self._background_identify, args=(frame_copy,), daemon=True
+        ).start()
+
+    def _background_identify(self, frame: NDArray) -> None:
+        """Run face identification and update _current_speaker (background thread)."""
+        try:
+            name, confidence = self._face_recognizer.identify(frame)  # type: ignore[union-attr]
+            with self._speaker_lock:
+                if self._current_speaker != name:
+                    logger.debug(
+                        "Speaker updated: %s → %s (similarity=%.2f)",
+                        self._current_speaker, name, confidence,
+                    )
+                self._current_speaker = name if name != FaceRecognizer.UNKNOWN else None
+        except Exception as exc:
+            logger.debug("Background face identification failed: %s", exc)
 
     def start(self) -> None:
         """Start the camera worker thread."""
@@ -309,9 +406,29 @@ class CameraWorker:
                                     float(pitch_from_center),
                                     float(self._smoothed_yaw_from_center),
                                 ]
+                            self._maybe_identify_face_background(frame, current_time)
                         else:
                             self._smoothed_eye_center = None
-                            self._smoothed_yaw_from_center *= 0.8
+                            if (
+                                self._doa_target_yaw_rad is not None
+                                and current_time < self._doa_active_until
+                            ):
+                                # DOA active: steer head toward sound source
+                                alpha = 0.12
+                                self._smoothed_yaw_from_center = (
+                                    (1.0 - alpha) * self._smoothed_yaw_from_center
+                                    + alpha * self._doa_target_yaw_rad
+                                )
+                                with self.face_tracking_lock:
+                                    self.face_tracking_offsets[5] = float(
+                                        self._smoothed_yaw_from_center
+                                    )
+                                # Suppress neutral interpolation while DOA is active
+                                self.last_face_detected_time = current_time
+                            else:
+                                if self._doa_target_yaw_rad is not None:
+                                    self._doa_target_yaw_rad = None
+                                self._smoothed_yaw_from_center *= 0.8
 
                     if self.last_face_detected_time is not None:
                         time_since_face_lost = current_time - self.last_face_detected_time

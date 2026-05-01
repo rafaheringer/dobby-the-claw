@@ -90,6 +90,8 @@ class RuntimeOrchestrator:
         if self.motion_manager is not None:
             self.motion_manager.set_state(self.state_machine.state)
 
+        self._current_speaker: str | None = None
+
         self.audio_queue: "Queue[tuple[str, Any]]" = Queue()
         self.text_queue: "Queue[str]" = Queue()
         self.input_stop = threading.Event()
@@ -141,6 +143,14 @@ class RuntimeOrchestrator:
                 self.robot_actions.wake_up()
             except Exception as exc:
                 logging.warning("[%dms] Failed to wake_up on startup: %s", self._elapsed_ms(), exc)
+
+        if self.camera_worker is not None and self.config.speaker_id_enabled:
+            try:
+                speaker = self.camera_worker.identify_current_speaker(wait_s=0.5)
+                self._current_speaker = speaker
+                logging.info("[%dms] Startup speaker ID: %s", self._elapsed_ms(), speaker or "none")
+            except Exception as exc:
+                logging.debug("Startup speaker ID failed: %s", exc)
 
         self._start_active_session()
 
@@ -266,6 +276,15 @@ class RuntimeOrchestrator:
             self.robot_actions.gesture_listening()
         except Exception as exc:
             logging.warning("[%dms] gesture.listening failed: %s", self._elapsed_ms(), exc)
+        if self.camera_worker is not None and self.config.speaker_id_enabled:
+            threading.Thread(target=self._identify_speaker_for_turn, daemon=True).start()
+
+    def _identify_speaker_for_turn(self) -> None:
+        """Background: DOA-steer + face-ID so result is ready before transcript arrives."""
+        try:
+            self.camera_worker.identify_current_speaker(wait_s=0.4)  # type: ignore[union-attr]
+        except Exception as exc:
+            logging.debug("Speaker turn ID failed: %s", exc)
 
     def _on_user_text(self, text: str, *, source: str) -> None:
         """Handle recognized or typed user text and trigger think gesture."""
@@ -276,6 +295,31 @@ class RuntimeOrchestrator:
             self.robot_actions.gesture_think()
         except Exception as exc:
             logging.warning("[%dms] gesture.think failed: %s", self._elapsed_ms(), exc)
+        if source == "said":
+            self._maybe_inject_speaker_change()
+
+    def _maybe_inject_speaker_change(self) -> None:
+        """Notify the model when the identified speaker changed since the last turn."""
+        if self.camera_worker is None or not self.config.speaker_id_enabled:
+            return
+        from reachy.face_recognizer import FaceRecognizer
+        detected = self.camera_worker.get_current_speaker()
+        if detected == self._current_speaker:
+            return
+        self._current_speaker = detected
+        if detected and detected != FaceRecognizer.UNKNOWN:
+            notice = (
+                f"SYSTEM NOTICE (não é mensagem do usuário): o falante atual mudou. "
+                f"A pessoa que acabou de falar foi identificada como: {detected}."
+            )
+        else:
+            notice = (
+                "SYSTEM NOTICE (não é mensagem do usuário): o falante atual mudou. "
+                "A pessoa que acabou de falar não foi reconhecida (visitante)."
+            )
+        logging.info("[%dms] Speaker changed → %s", self._elapsed_ms(), detected or "visitante")
+        if self.realtime is not None:
+            self.realtime.send_text(notice)
 
     def _on_assistant_text(self, text: str) -> None:
         """Log assistant text responses emitted by realtime session."""
@@ -381,6 +425,21 @@ class RuntimeOrchestrator:
         )
         return f"{identity_prompt.rstrip()}{runtime_guardrails}\n"
 
+    def _build_speaker_section(self) -> str:
+        """Return a speaker context section to append to the identity prompt."""
+        if not self._current_speaker:
+            return ""
+        from reachy.face_recognizer import FaceRecognizer
+        if self._current_speaker == FaceRecognizer.UNKNOWN:
+            return (
+                "\n\n## FALANTE ATUAL\n"
+                "A pessoa que ativou o wakeword não foi reconhecida (visitante)."
+            )
+        return (
+            "\n\n## FALANTE ATUAL\n"
+            f"A pessoa que ativou o wakeword foi identificada como: {self._current_speaker}."
+        )
+
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Execute one tool call and apply delegation/sleep side effects."""
         is_openclaw_delegate = name == "delegate_task"
@@ -398,6 +457,14 @@ class RuntimeOrchestrator:
                 output = getattr(result, "output", None)
                 if isinstance(output, dict) and output.get("ok"):
                     self._queue_sleep_request()
+            if name == "enroll_speaker":
+                output = getattr(result, "output", None)
+                enrolled_name = str(arguments.get("name", "")).strip()
+                if isinstance(output, dict) and output.get("ok") and enrolled_name:
+                    self._current_speaker = enrolled_name
+                    if self.camera_worker is not None:
+                        with self.camera_worker._speaker_lock:
+                            self.camera_worker._current_speaker = enrolled_name
             return result
         finally:
             if is_openclaw_delegate:
@@ -406,7 +473,8 @@ class RuntimeOrchestrator:
     def _start_active_session(self) -> None:
         """Create and start the active realtime session for the current mode."""
         ha_section = self._build_ha_catalog_section()
-        identity = self.identity_prompt_runtime + ha_section
+        speaker_section = self._build_speaker_section()
+        identity = self.identity_prompt_runtime + ha_section + speaker_section
 
         callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
@@ -532,6 +600,10 @@ class RuntimeOrchestrator:
 
         if self.camera_worker is not None:
             self.camera_worker.start()
+            speaker = self.camera_worker.identify_current_speaker(wait_s=0.7)
+            if speaker:
+                logging.info("[%dms] Speaker identified: %s", self._elapsed_ms(), speaker)
+            self._current_speaker = speaker
         if self.motion_manager is not None:
             self.motion_manager.start()
 

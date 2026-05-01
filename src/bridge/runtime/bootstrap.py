@@ -8,9 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import os
+
 from bridge.config import BridgeConfig
 from reachy.camera_worker import CameraWorker
 from reachy.client import ReachyClient
+from reachy.face_recognizer import FaceRecognizer
 from reachy.motion import MotionManager
 
 
@@ -55,6 +58,17 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
             config.reachy_bridge_url,
         )
 
+    face_recognizer: FaceRecognizer | None = None
+    if config.speaker_id_enabled:
+        profiles_dir = os.path.expanduser(config.speaker_id_profiles_dir)
+        face_recognizer = FaceRecognizer(profiles_dir)
+        if not face_recognizer.available:
+            logging.warning(
+                "SPEAKER_ID_ENABLED=1 but insightface is not available; "
+                "install with: pip install insightface onnxruntime"
+            )
+            face_recognizer = None
+
     if is_sdk_runtime:
         try:
             reachy_sdk_instance = reachy.get_sdk_instance()
@@ -66,6 +80,7 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                 debug_log_interval_s=config.vision_debug_log_interval_s,
                 antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,
                 antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
+                face_recognizer=face_recognizer,
             )
             motion_manager = MotionManager(
                 reachy_sdk_instance,

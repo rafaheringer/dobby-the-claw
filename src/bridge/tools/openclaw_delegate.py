@@ -22,13 +22,16 @@ class OpenClawDelegateTool:
             name="delegate_task",
             description=(
                 "Delegate any request you cannot complete fully and confidently on your own to an external executor. "
+                "This includes reminders, timers, alarms, scheduled tasks, background follow-ups, monitoring, and any request that must happen after this turn. "
                 "Do not answer with inability/capability disclaimers when this tool can handle the request; call it instead. "
                 "Before calling this tool, first tell the user you are delegating "
                 "and they should wait a moment."
             ),
             runtime_guardrail=(
                 "`delegate_task` is mandatory whenever you are not fully certain you can execute the request end-to-end by yourself. "
+                "It is also mandatory for anything that must happen later or persist beyond the current reply, such as reminders, timers, alarms, scheduled actions, recurring tasks, follow-ups, or monitoring. "
                 "Do not respond with capability disclaimers (for example 'I cannot access', 'I can't do that directly') when delegation is possible. "
+                "If the user asks to be reminded later, do not refuse; announce a brief wait and delegate. "
                 "Before calling `delegate_task`, ask the user to wait briefly; after tool result, provide the final answer naturally."
             ),
             parameters={

@@ -87,6 +87,8 @@ class BridgeConfig:
     wakeword_model_path: str
     pi_ssh_host: str
     pi_ssh_user: str
+    speaker_id_enabled: bool
+    speaker_id_profiles_dir: str
 
 
     @staticmethod
@@ -164,4 +166,8 @@ class BridgeConfig:
             wakeword_model_path=os.getenv("WAKEWORD_MODEL_PATH", "").strip(),
             pi_ssh_host=os.getenv("PI_SSH_HOST", "raspberrypi.local").strip(),
             pi_ssh_user=os.getenv("PI_SSH_USER", "dobby").strip(),
+            speaker_id_enabled=_env_flag("SPEAKER_ID_ENABLED", True),
+            speaker_id_profiles_dir=os.getenv(
+                "SPEAKER_ID_PROFILES_DIR", "~/.dobby/face_profiles"
+            ).strip(),
         )
