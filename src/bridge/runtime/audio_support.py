@@ -85,6 +85,13 @@ def build_tool_registry(
         tool_registry.register(
             OpenClawDelegateTool(openclaw_client, default_language=config.stt_language)
         )
+        if config.notification_callback_base_url:
+            from bridge.tools.create_reminder import CreateReminderTool
+            from bridge.tools.cancel_reminder import CancelReminderTool
+            tool_registry.register(
+                CreateReminderTool(openclaw_client, callback_url=config.notification_callback_base_url)
+            )
+            tool_registry.register(CancelReminderTool(openclaw_client))
     if config.home_assistant_enabled:
         if not config.home_assistant_token:
             logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_TOKEN is empty")

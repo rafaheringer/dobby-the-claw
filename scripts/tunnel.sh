@@ -7,46 +7,59 @@
 #   localhost:8443  -> Pi:8443  (Reachy WebRTC signaling)
 #   localhost:18789 -> Pi:18789 (OpenClaw UI)
 #   localhost:8123  -> Pi:8123  (Home Assistant UI)
+#   Pi:18800        <- localhost:18800  (Dobby notification webhook — reverse tunnel)
 #
 # Usage:
 #   ./scripts/tunnel.sh          # start tunnels
 #   ./scripts/tunnel.sh stop     # kill all tunnels
 
 PI="dobby@raspberrypi.local"
-CONTROL_SOCKET="/tmp/dobby-tunnel.sock"
+PID_FILE="/tmp/dobby-tunnel.pid"
 
 start() {
-    if ssh -O check -S "$CONTROL_SOCKET" "$PI" &>/dev/null; then
-        echo "Tunnels already running."
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        echo "Tunnels already running (PID $(cat "$PID_FILE"))."
         exit 0
     fi
 
     echo "Opening tunnels to $PI ..."
-    ssh -fN -M -S "$CONTROL_SOCKET" \
+    ssh -N \
         -L 7447:127.0.0.1:7447 \
         -L 8000:127.0.0.1:8000 \
         -L 8443:127.0.0.1:8443 \
         -L 18789:127.0.0.1:18789 \
         -L 8123:127.0.0.1:8123 \
-        "$PI"
+        -R 18800:127.0.0.1:18800 \
+        "$PI" &
+    SSH_PID=$!
+    disown $SSH_PID 2>/dev/null || true
+    echo "$SSH_PID" > "$PID_FILE"
 
     echo ""
-    echo "Tunnels open:"
-    echo "  Reachy Zenoh     -> tcp://localhost:7447"
-    echo "  Reachy HTTP API  -> http://localhost:8000"
-    echo "  Reachy WebRTC    -> wss://localhost:8443"
-    echo "  OpenClaw         -> http://localhost:18789"
-    echo "  Home Assistant   -> http://localhost:8123"
+    echo "Tunnels open (PID $SSH_PID):"
+    echo "  Reachy Zenoh          -> tcp://localhost:7447"
+    echo "  Reachy HTTP API       -> http://localhost:8000"
+    echo "  Reachy WebRTC         -> wss://localhost:8443"
+    echo "  OpenClaw              -> http://localhost:18789"
+    echo "  Home Assistant        -> http://localhost:8123"
+    echo "  Notification webhook  <- http://127.0.0.1:18800 (reverse tunnel)"
     echo ""
     echo "Stop with: ./scripts/tunnel.sh stop"
 }
 
 stop() {
-    if ssh -O check -S "$CONTROL_SOCKET" "$PI" &>/dev/null; then
-        ssh -O exit -S "$CONTROL_SOCKET" "$PI"
-        echo "Tunnels closed."
-    else
+    if [ ! -f "$PID_FILE" ]; then
         echo "No active tunnels found."
+        exit 0
+    fi
+    PID=$(cat "$PID_FILE")
+    if kill -0 "$PID" 2>/dev/null; then
+        kill "$PID"
+        rm -f "$PID_FILE"
+        echo "Tunnels closed (PID $PID)."
+    else
+        rm -f "$PID_FILE"
+        echo "No active tunnels found (stale PID file removed)."
     fi
 }
 

@@ -89,7 +89,8 @@ class BridgeConfig:
     pi_ssh_user: str
     speaker_id_enabled: bool
     speaker_id_profiles_dir: str
-
+    notification_server_port: int
+    notification_callback_base_url: str
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -170,4 +171,6 @@ class BridgeConfig:
             speaker_id_profiles_dir=os.getenv(
                 "SPEAKER_ID_PROFILES_DIR", "~/.dobby/face_profiles"
             ).strip(),
+            notification_server_port=int(os.getenv("NOTIFICATION_SERVER_PORT", "18800")),
+            notification_callback_base_url=os.getenv("NOTIFICATION_CALLBACK_BASE_URL", "").strip(),
         )

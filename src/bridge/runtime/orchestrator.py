@@ -14,6 +14,7 @@ from reachy.client import ReachyClient
 from reachy.motion import MotionManager
 from bridge.state_machine import Event, StateMachine
 
+from bridge.runtime.adapters.notification_server import NotificationServer
 from bridge.runtime.adapters.reachy_actions import ReachyRobotActions
 from bridge.runtime.adapters.reachy_media import ReachySdkMediaIO
 from bridge.runtime.adapters.realtime_session import OpenAIRealtimeSessionFactory
@@ -124,6 +125,7 @@ class RuntimeOrchestrator:
 
         self._ha_client = ha_client
         self._skip_stdin = skip_stdin
+        self._notification_server: NotificationServer | None = None
         self.tool_specs = self.tool_runtime.openai_specs()
         self.identity_prompt_runtime = self._build_runtime_identity_prompt(identity_prompt)
         self.wakeword = build_wakeword_detector(config)
@@ -161,6 +163,10 @@ class RuntimeOrchestrator:
             logging.info("Type your message and press Enter. Use /quit to exit chat mode.")
             threading.Thread(target=self._input_worker, daemon=True).start()
 
+        if self.config.notification_server_port > 0:
+            self._notification_server = NotificationServer("0.0.0.0", self.config.notification_server_port)
+            self._notification_server.start()
+
         try:
             while True:
                 sample = self.media_io.get_audio_sample()
@@ -168,10 +174,17 @@ class RuntimeOrchestrator:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
 
                 if self.sleeping:
+                    has_notification = (
+                        self._notification_server is not None
+                        and not self._notification_server.queue.empty()
+                    )
                     if sample is not None and self.wakeword.process_sample(self.input_sample_rate, sample):
                         self._wake_from_sleep_mode()
-                    time.sleep(0.01)
-                    continue
+                    elif has_notification:
+                        self._wake_from_sleep_mode(send_wake_notice=False)
+                    else:
+                        time.sleep(0.01)
+                        continue
 
                 if sample is not None and self.realtime is not None and self.active_mode_uses_mic_recording:
                     self.realtime.feed_audio(self.input_sample_rate, sample)
@@ -239,6 +252,8 @@ class RuntimeOrchestrator:
                 if self.idle_sleep_enabled and (now - self.last_user_activity) >= self.idle_sleep_timeout_s:
                     self._enter_sleep_mode()
 
+                self._drain_notification_queue()
+
                 time.sleep(0.01)
         finally:
             self.input_stop.set()
@@ -258,6 +273,9 @@ class RuntimeOrchestrator:
                 self.motion_manager.stop()
             if self.camera_worker is not None:
                 self.camera_worker.stop()
+            if self._notification_server is not None:
+                self._notification_server.stop()
+                self._notification_server = None
 
     def _elapsed_ms(self) -> int:
         """Return elapsed orchestrator runtime in milliseconds."""
@@ -580,7 +598,7 @@ class RuntimeOrchestrator:
         logging.info("[%dms] Sleep requested by tool", self._elapsed_ms())
         self.sleep_after_response.set()
 
-    def _wake_from_sleep_mode(self) -> None:
+    def _wake_from_sleep_mode(self, *, send_wake_notice: bool = True) -> None:
         """Wake runtime from sleep mode and restore active realtime session."""
         self._sleep_drain_at = 0.0
         logging.info("[%dms] Offline wakeword detected, waking up", self._elapsed_ms())
@@ -615,12 +633,33 @@ class RuntimeOrchestrator:
         self._mark_user_activity()
         self.sleeping = False
 
-        if self.realtime is not None:
+        if send_wake_notice and self.realtime is not None:
             self.realtime.send_text(
                 "SYSTEM NOTICE (não é mensagem do usuário): você acabou de ser acordado pelo wakeword. "
                 "Diga algo breve em português para avisar que está acordado e pronto para ajudar. "
                 "Seja fiel ao seu personagem."
             )
+
+    def _drain_notification_queue(self) -> None:
+        """Inject pending async notifications into the active realtime session."""
+        if self._notification_server is None or self._notification_server.queue.empty():
+            return
+        if self.realtime is None or not self.realtime.wait_until_ready(timeout_s=0.0):
+            return
+        if not self.audio_queue.empty():
+            return
+        while True:
+            try:
+                summary = self._notification_server.queue.get_nowait()
+            except Empty:
+                break
+            notice = (
+                "SYSTEM NOTICE (não é mensagem do usuário): lembrete agendado disparado. "
+                f"Diga ao usuário: {summary}"
+            )
+            logging.info("[%dms] Delivering notification: %.80s", self._elapsed_ms(), summary)
+            self.realtime.send_text(notice)
+            self._mark_user_activity()
 
     def _drain_text_queue(self) -> bool:
         """Process queued chat text inputs and return True when exit requested."""
