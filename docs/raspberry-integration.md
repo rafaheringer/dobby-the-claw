@@ -62,7 +62,16 @@ cp .env.example .env
 
 ### Automated setup (skills + exec config)
 
-After the initial OpenClaw install and after filling in `dobby-the-claw/.env` (including `HA_URL` and `HA_TOKEN`), run the setup script from the project root **on the Pi**:
+Clone the `dobby-the-claw` repository on the Pi and fill in the environment file:
+
+```bash
+git clone <repo-url> ~/dobby-the-claw
+cd ~/dobby-the-claw
+cp .env.example .env
+nano .env  # Fill in OPENAI_API_KEY, OPENCLAW_*, HA_URL, HA_TOKEN, etc.
+```
+
+Then run the setup script from the project root **on the Pi**:
 
 ```bash
 ./scripts/setup-openclaw.sh
@@ -76,6 +85,12 @@ This script handles everything in one shot:
 - Applies exec settings (`tools.exec.host=gateway`, `security=full`, `ask=on-miss`)
 - Sets `exec-approvals.json` `askFallback=full` (auto-approve when no UI, e.g. WhatsApp)
 - Copies `docker-compose.openclaw.yml` → `~/openclaw/docker-compose.override.yml`
+
+> **Safe to re-run:** the script is idempotent. Skills and binaries already present are skipped; config files are merged (not replaced). OpenClaw workspace data and conversation history are never touched. If you've made manual edits to `docker-compose.override.yml` or `openclaw.json` beyond what the script manages, back them up first:
+> ```bash
+> cp ~/openclaw/docker-compose.override.yml ~/openclaw/docker-compose.override.yml.bak
+> cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.bak
+> ```
 
 > **Note:** The gateway takes ~2 minutes to become healthy after (re)start. Check with `curl http://localhost:18789/healthz`.
 
@@ -247,7 +262,7 @@ sudo systemctl status reachy-mini-daemon
 
 ## Deploying the Bridge
 
-Clone the repository and configure the environment:
+If you followed the OpenClaw setup above, the repository is already cloned at `~/dobby-the-claw` and `.env` is filled in. Otherwise, do it now:
 
 ```bash
 git clone <repo-url> ~/dobby-the-claw

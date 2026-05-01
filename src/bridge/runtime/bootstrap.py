@@ -90,13 +90,13 @@ def stop_runtime_workers(runtime: ReachyRuntime) -> None:
     if runtime.motion_manager is not None:
         try:
             runtime.motion_manager.stop()
-        except Exception as exc:
+        except BaseException as exc:
             logging.warning("Failed to stop motion manager: %s", exc)
 
     if runtime.camera_worker is not None:
         try:
             runtime.camera_worker.stop()
-        except Exception as exc:
+        except BaseException as exc:
             logging.warning("Failed to stop camera worker: %s", exc)
 
 
