@@ -9,16 +9,14 @@
       "Bash(./scripts/tunnel.sh stop:*)",
       "Bash(./scripts/tunnel.sh start:*)",
       "Bash(netstat -ano)",
-      "Bash(taskkill //PID 17124 //F)",
-      "Bash(taskkill //PID 25596 //F)",
-      "Bash(taskkill //PID 25636 //F)",
-      "Bash(taskkill //PID 5616 //F)",
-      "Bash(taskkill //PID 24432 //F)",
       "Bash(nc -zv localhost 7447)",
       "Bash(C:/GITHUB/dobby-the-claw/.venv/Scripts/pip install:*)",
       "Bash(PYTHONPATH=src python:*)",
       "Bash(python:*)",
-      "Bash(.venv/Scripts/python:*)"
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(.venv\\\\Scripts\\\\python.exe *)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
