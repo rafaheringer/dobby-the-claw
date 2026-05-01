@@ -56,6 +56,7 @@ def run_tui_loop(
         idle_sleep_timeout_s=idle_sleep_timeout_s,
         interactive_text=True,
         active_mode_uses_mic_recording=True,
+        wake_on_startup=False,
         skip_stdin=True,
         ha_client=build_ha_client(config),
     )

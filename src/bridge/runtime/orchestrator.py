@@ -54,6 +54,7 @@ class RuntimeOrchestrator:
         idle_sleep_timeout_s: float,
         interactive_text: bool,
         active_mode_uses_mic_recording: bool,
+        wake_on_startup: bool = True,
         conversation_factory: ConversationSessionFactoryPort | None = None,
         robot_actions: RobotActionsPort | None = None,
         tool_runtime: ToolRuntimePort | None = None,
@@ -71,6 +72,7 @@ class RuntimeOrchestrator:
         self.idle_sleep_timeout_s = idle_sleep_timeout_s
         self.interactive_text = interactive_text
         self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
+        self.wake_on_startup = wake_on_startup
         self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
         self.tool_runtime = tool_runtime or build_tool_runtime(
@@ -134,10 +136,11 @@ class RuntimeOrchestrator:
         except Exception as exc:
             logging.warning("[%dms] Failed to enable motors on startup: %s", self._elapsed_ms(), exc)
 
-        try:
-            self.robot_actions.wake_up()
-        except Exception as exc:
-            logging.warning("[%dms] Failed to wake_up on startup: %s", self._elapsed_ms(), exc)
+        if self.wake_on_startup:
+            try:
+                self.robot_actions.wake_up()
+            except Exception as exc:
+                logging.warning("[%dms] Failed to wake_up on startup: %s", self._elapsed_ms(), exc)
 
         self._start_active_session()
 

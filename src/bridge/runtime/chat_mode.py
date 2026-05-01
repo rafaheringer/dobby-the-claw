@@ -37,6 +37,7 @@ def run_chat_loop(
         idle_sleep_timeout_s=idle_sleep_timeout_s,
         interactive_text=True,
         active_mode_uses_mic_recording=False,
+        wake_on_startup=False,
         ha_client=build_ha_client(config),
     )
     orchestrator.run()
