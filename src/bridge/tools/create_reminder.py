@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient
 from bridge.tools.contracts import ToolDefinition, ToolExecutionResult
+
+logger = logging.getLogger(__name__)
 
 
 class CreateReminderTool:
@@ -97,6 +100,7 @@ class CreateReminderTool:
                 timezone=timezone,
             )
         except Exception as exc:
+            logger.exception("create_reminder: scheduling failed — %s", exc)
             return ToolExecutionResult(output={"ok": False, "message": f"Reminder scheduling failed: {exc}"})
 
         kind = "one-time" if delay_seconds is not None else "recurring"

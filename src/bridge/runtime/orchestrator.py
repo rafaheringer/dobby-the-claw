@@ -164,9 +164,12 @@ class RuntimeOrchestrator:
             try:
                 speaker = self.camera_worker.identify_current_speaker(wait_s=0.5)
                 self._current_speaker = speaker
-                logging.info("[%dms] Startup speaker ID: %s", self._elapsed_ms(), speaker or "none")
+                if speaker:
+                    logging.info("[%dms] Startup speaker ID: %s", self._elapsed_ms(), speaker)
+                else:
+                    logging.info("[%dms] Startup speaker ID: no face detected", self._elapsed_ms())
             except Exception as exc:
-                logging.debug("Startup speaker ID failed: %s", exc)
+                logging.warning("[%dms] Startup speaker ID failed: %s", self._elapsed_ms(), exc)
 
         self._start_active_session()
 

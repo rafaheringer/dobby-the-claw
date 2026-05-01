@@ -23,16 +23,15 @@ start() {
     fi
 
     echo "Opening tunnels to $PI ..."
-    ssh -N \
+    nohup ssh -N \
         -L 7447:127.0.0.1:7447 \
         -L 8000:127.0.0.1:8000 \
         -L 8443:127.0.0.1:8443 \
         -L 18789:127.0.0.1:18789 \
         -L 8123:127.0.0.1:8123 \
         -R 18800:127.0.0.1:18800 \
-        "$PI" &
+        "$PI" > /dev/null 2>&1 &
     SSH_PID=$!
-    disown $SSH_PID 2>/dev/null || true
     echo "$SSH_PID" > "$PID_FILE"
 
     echo ""

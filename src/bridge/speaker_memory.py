@@ -61,10 +61,17 @@ class SpeakerMemory:
             result = self._mem.get_all(user_id=speaker)  # type: ignore[union-attr]
             facts = [m["memory"] for m in (result.get("results") or []) if m.get("memory")]
             if not facts:
+                logger.info("SpeakerMemory: no memories found for '%s'", speaker)
                 return ""
+            logger.info(
+                "SpeakerMemory: loaded %d fact(s) for '%s': %s",
+                len(facts),
+                speaker,
+                " | ".join(facts),
+            )
             return "\n".join(f"- {f}" for f in facts)
         except Exception as exc:
-            logger.debug("SpeakerMemory.load failed for '%s': %s", speaker, exc)
+            logger.warning("SpeakerMemory.load failed for '%s': %s", speaker, exc)
             return ""
 
     def save_async(self, speaker: str, messages: list[dict]) -> None:

@@ -92,6 +92,8 @@ def build_tool_registry(
                 CreateReminderTool(openclaw_client, callback_url=config.notification_callback_base_url)
             )
             tool_registry.register(CancelReminderTool(openclaw_client))
+        else:
+            logging.warning("NOTIFICATION_CALLBACK_BASE_URL is not set — create_reminder and cancel_reminder tools disabled")
     if config.home_assistant_enabled:
         if not config.home_assistant_token:
             logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_TOKEN is empty")
