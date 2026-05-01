@@ -68,7 +68,7 @@ Clone the `dobby-the-claw` repository on the Pi and fill in the environment file
 git clone <repo-url> ~/dobby-the-claw
 cd ~/dobby-the-claw
 cp .env.example .env
-nano .env  # Fill in OPENAI_API_KEY, OPENCLAW_*, HA_URL, HA_TOKEN, etc.
+nano .env  # Fill in OPENAI_API_KEY, OPENCLAW_*, HOME_ASSISTANT_URL, HOME_ASSISTANT_TOKEN, etc.
 ```
 
 Then run the setup script from the project root **on the Pi**:
@@ -138,7 +138,7 @@ sudo chown -R dobby:dobby ~/homeassistant/config/custom_components
 wget -O - https://get.hacs.xyz | bash -
 ```
 
-After setup, generate a **Long-Lived Access Token** in the HA UI (Profile → Security) and save it as `HA_TOKEN` in your `.env`.
+After setup, generate a **Long-Lived Access Token** in the HA UI (Profile -> Security) and save it as `HOME_ASSISTANT_TOKEN` in your `.env`.
 
 ---
 

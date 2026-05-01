@@ -56,6 +56,7 @@ For optional integrations:
 | Variable | Description |
 |---|---|
 | `OPENCLAW_BEARER_TOKEN` | Token from OpenClaw setup |
+| `HOME_ASSISTANT_URL` | Home Assistant base URL (ex.: `http://127.0.0.1:8123`) |
 | `HOME_ASSISTANT_TOKEN` | Long-lived token from HA profile |
 | `WAKEWORD_MODEL_PATH` | Path to custom wake word `.onnx` model (see below) |
 

@@ -238,8 +238,8 @@ class DobbyTUI(App):
         status_bar = self.query_one(StatusBar)
 
         tasks = []
-        if self._config.home_assistant_enabled and self._config.home_assistant_ws_url:
-            tasks.append(("ha", check_service_up(self._config.home_assistant_ws_url)))
+        if self._config.home_assistant_enabled and self._config.home_assistant_url:
+            tasks.append(("ha", check_service_up(self._config.home_assistant_url)))
         if self._config.openclaw_enabled and self._config.openclaw_ws_url:
             tasks.append(("oc", check_service_up(self._config.openclaw_ws_url)))
         tasks.append(("pi", get_pi_stats(

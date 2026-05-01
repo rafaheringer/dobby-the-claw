@@ -88,5 +88,5 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 - `OPENAI_API_KEY` / `OPENAI_REALTIME_MODEL` — OpenAI credentials and model
 - `STT_LANGUAGE` — defaults to `pt` (Brazilian Portuguese)
 - `OPENCLAW_GATEWAY_URL` / `OPENCLAW_BEARER_TOKEN` — task delegation
-- `HA_URL` / `HA_TOKEN` — Home Assistant WebSocket
+- `HOME_ASSISTANT_URL` / `HOME_ASSISTANT_TOKEN` — Home Assistant base URL and token
 - `WAKEWORD_ENABLED` / `WAKEWORD_ALIASES` — offline wake word detection

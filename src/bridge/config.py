@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import os
+from urllib.parse import urlparse, urlunparse
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -15,6 +16,36 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _normalize_ha_base_url(raw_url: str) -> str:
+    """Normalize HA base URL to an HTTP(S) origin without path."""
+    url = (raw_url or "").strip()
+    if not url:
+        return ""
+
+    parsed = urlparse(url)
+    if parsed.scheme in {"http", "https"}:
+        return urlunparse((parsed.scheme, parsed.netloc, "", "", "", "")).rstrip("/")
+    if parsed.scheme in {"ws", "wss"}:
+        http_scheme = "https" if parsed.scheme == "wss" else "http"
+        return urlunparse((http_scheme, parsed.netloc, "", "", "", "")).rstrip("/")
+
+    # Support host:port without scheme
+    parsed_fallback = urlparse(f"http://{url}")
+    if parsed_fallback.netloc:
+        return urlunparse(("http", parsed_fallback.netloc, "", "", "", "")).rstrip("/")
+    return ""
+
+
+def build_home_assistant_websocket_url(base_url: str) -> str:
+    """Build Home Assistant websocket endpoint from canonical base URL."""
+    normalized = _normalize_ha_base_url(base_url)
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+    return urlunparse((ws_scheme, parsed.netloc, "/api/websocket", "", "", ""))
 
 @dataclass(frozen=True)
 class BridgeConfig:
@@ -48,7 +79,7 @@ class BridgeConfig:
     openclaw_bearer_token: str
     openclaw_timeout_s: float
     home_assistant_enabled: bool
-    home_assistant_ws_url: str
+    home_assistant_url: str
     home_assistant_token: str
     home_assistant_timeout_s: float
     home_assistant_sensitive_domains: tuple[str, ...]
@@ -68,6 +99,12 @@ class BridgeConfig:
         )
         if not aliases:
             aliases = ("reachy", "dobby")
+
+        home_assistant_url = _normalize_ha_base_url(
+            os.getenv("HOME_ASSISTANT_URL", "http://127.0.0.1:8123")
+        )
+
+        home_assistant_token = os.getenv("HOME_ASSISTANT_TOKEN", "").strip()
 
         return BridgeConfig(
             llm_api_base=os.getenv("LLM_API_BASE", "https://api.openai.com/v1"),
@@ -113,10 +150,8 @@ class BridgeConfig:
             openclaw_bearer_token=os.getenv("OPENCLAW_BEARER_TOKEN", "").strip(),
             openclaw_timeout_s=float(os.getenv("OPENCLAW_TIMEOUT_S", "45")),
             home_assistant_enabled=_env_flag("HOME_ASSISTANT_ENABLED", False),
-            home_assistant_ws_url=os.getenv(
-                "HOME_ASSISTANT_WS_URL", "ws://127.0.0.1:8123/api/websocket"
-            ).strip(),
-            home_assistant_token=os.getenv("HOME_ASSISTANT_TOKEN", "").strip(),
+            home_assistant_url=home_assistant_url,
+            home_assistant_token=home_assistant_token,
             home_assistant_timeout_s=float(os.getenv("HOME_ASSISTANT_TIMEOUT_S", "15")),
             home_assistant_sensitive_domains=tuple(
                 domain.strip() for domain in os.getenv(

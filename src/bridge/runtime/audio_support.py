@@ -8,7 +8,7 @@ import time
 from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional
 
-from bridge.config import BridgeConfig
+from bridge.config import BridgeConfig, build_home_assistant_websocket_url
 from reachy.camera_worker import CameraWorker
 from reachy.motion import MotionManager
 from reachy.realtime_client import OpenAIRealtimeSession
@@ -80,12 +80,12 @@ def build_tool_registry(
     if config.home_assistant_enabled:
         if not config.home_assistant_token:
             logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_TOKEN is empty")
-        elif not config.home_assistant_ws_url:
-            logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_WS_URL is empty")
+        elif not config.home_assistant_url:
+            logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_URL is empty")
         else:
             home_assistant_client = HomeAssistantWsClient(
                 HomeAssistantWsConfig(
-                    ws_url=config.home_assistant_ws_url,
+                    ws_url=build_home_assistant_websocket_url(config.home_assistant_url),
                     access_token=config.home_assistant_token,
                     timeout_s=config.home_assistant_timeout_s,
                 )

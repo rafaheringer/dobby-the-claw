@@ -39,11 +39,11 @@ command -v docker >/dev/null 2>&1 || fail "docker not found."
 command -v python3 >/dev/null 2>&1 || fail "python3 not found."
 command -v curl >/dev/null 2>&1 || fail "curl not found."
 
-HA_URL="$(read_env HA_URL)"
-HA_TOKEN="$(read_env HA_TOKEN)"
+HOME_ASSISTANT_URL="$(read_env HOME_ASSISTANT_URL)"
+HOME_ASSISTANT_TOKEN="$(read_env HOME_ASSISTANT_TOKEN)"
 
-[[ -n "$HA_URL" ]] || fail "HA_URL is empty in .env"
-[[ -n "$HA_TOKEN" ]] || fail "HA_TOKEN is empty in .env"
+[[ -n "$HOME_ASSISTANT_URL" ]] || fail "HOME_ASSISTANT_URL is empty in .env"
+[[ -n "$HOME_ASSISTANT_TOKEN" ]] || fail "HOME_ASSISTANT_TOKEN is empty in .env"
 
 # ── 1. rebuild image with Docker CLI ─────────────────────────────────────────
 
@@ -97,7 +97,7 @@ info "Writing HA config to workspace..."
 mkdir -p "$HA_CONFIG_DIR"
 python3 -c "
 import json
-cfg = {'url': '$HA_URL', 'token': '$HA_TOKEN'}
+cfg = {'url': '$HOME_ASSISTANT_URL', 'token': '$HOME_ASSISTANT_TOKEN'}
 with open('$HA_CONFIG_FILE', 'w') as f:
     json.dump(cfg, f, indent=2)
 "
@@ -159,8 +159,8 @@ if [[ -f "$OPENCLAW_ENV" ]]; then
     fi
   }
 
-  set_env_var "HA_URL" "$HA_URL"
-  set_env_var "HA_TOKEN" "$HA_TOKEN"
+  set_env_var "HOME_ASSISTANT_URL" "$HOME_ASSISTANT_URL"
+  set_env_var "HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_TOKEN"
   set_env_var "OPENCLAW_SANDBOX" "1"
   set_env_var "DOCKER_GID" "$DOCKER_GID"
   set_env_var "OPENCLAW_INSTALL_DOCKER_CLI" "1"
