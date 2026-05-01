@@ -37,6 +37,9 @@ from bridge.runtime.ports import (
 )
 
 
+_conv_log = logging.getLogger("bridge.conversation")
+
+
 class RuntimeOrchestrator:
     """Coordinate shared runtime behavior across chat and realtime modes."""
 
@@ -324,6 +327,7 @@ class RuntimeOrchestrator:
     def _on_assistant_text(self, text: str) -> None:
         """Log assistant text responses emitted by realtime session."""
         logging.info("[%dms] Assistant text: %s", self._elapsed_ms(), text)
+        _conv_log.info("Dobby ❯ %s", text)
 
     def _on_assistant_audio_chunk(self, chunk) -> None:
         """Queue one streamed assistant audio chunk for playback."""

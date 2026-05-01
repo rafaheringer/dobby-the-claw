@@ -112,7 +112,37 @@ class DobbyTUI(App):
         height: 4;
     }
 
+    #main-area {
+        height: 1fr;
+    }
+
+    #log-panel {
+        width: 3fr;
+        border-right: solid $primary-darken-2;
+    }
+
+    .panel-label {
+        height: 1;
+        background: $panel;
+        border-bottom: solid $primary-darken-2;
+        padding: 0 1;
+        color: $text-muted;
+    }
+
     #log {
+        height: 1fr;
+        border: none;
+        padding: 0 1;
+        background: $background;
+        scrollbar-gutter: stable;
+    }
+
+    #chat-panel {
+        width: 2fr;
+    }
+
+    #chat-log {
+        height: 1fr;
         border: none;
         padding: 0 1;
         background: $background;
@@ -169,10 +199,16 @@ class DobbyTUI(App):
 
     def compose(self) -> ComposeResult:
         yield StatusBar(self._config, self._mode_name)
-        yield RichLog(id="log", auto_scroll=True, highlight=True, markup=True, wrap=True)
-        with Horizontal(id="input-row"):
-            yield Label("You ❯", id="prompt-label")
-            yield Input(placeholder="Digite uma mensagem…", id="chat-input")
+        with Horizontal(id="main-area"):
+            with Vertical(id="log-panel"):
+                yield Label("▸ Logs técnicos", classes="panel-label")
+                yield RichLog(id="log", auto_scroll=True, highlight=True, markup=True, wrap=True)
+            with Vertical(id="chat-panel"):
+                yield Label("▸ Conversa", classes="panel-label")
+                yield RichLog(id="chat-log", auto_scroll=True, highlight=True, markup=True, wrap=True)
+                with Horizontal(id="input-row"):
+                    yield Label("You ❯", id="prompt-label")
+                    yield Input(placeholder="Digite uma mensagem…", id="chat-input")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -198,8 +234,8 @@ class DobbyTUI(App):
         text = event.value.strip()
         if text:
             self._text_queue.put(text)
-            log = self.query_one("#log", RichLog)
-            log.write(f"[bold cyan]You ❯[/] {text}")
+            self.query_one("#log", RichLog).write(f"[bold cyan]You ❯[/] {text}")
+            self.query_one("#chat-log", RichLog).write(f"[bold cyan]You ❯[/] {text}")
         event.input.clear()
 
     # ------------------------------------------------------------------
@@ -208,18 +244,18 @@ class DobbyTUI(App):
 
     def _drain_log_queue(self) -> None:
         log = self.query_one("#log", RichLog)
+        chat_log = self.query_one("#chat-log", RichLog)
         while True:
             try:
                 record = self._log_queue.get_nowait()
             except queue.Empty:
                 break
-            self._write_log_record(log, record)
+            self._write_log_record(log, chat_log, record)
 
-    def _write_log_record(self, log: RichLog, record: logging.LogRecord) -> None:
+    def _write_log_record(self, log: RichLog, chat_log: RichLog, record: logging.LogRecord) -> None:
         style = _LEVEL_STYLE.get(record.levelno, "white")
         level_name = record.levelname.ljust(8)
         name = record.name
-        # Shorten common prefixes to save width
         for prefix in ("bridge.", "reachy.", "homeassistant."):
             if name.startswith(prefix):
                 name = name[len(prefix):]
@@ -229,6 +265,8 @@ class DobbyTUI(App):
         log.write(
             f"[dim]{ts}[/]  [{style}]{level_name}[/]  [dim]{name}[/]  [{style}]{msg}[/]"
         )
+        if record.name == "bridge.conversation":
+            chat_log.write(f"[bold green]{msg}[/]")
 
     # ------------------------------------------------------------------
     # Status refresh

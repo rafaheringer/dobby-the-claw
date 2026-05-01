@@ -129,15 +129,14 @@ class CameraWorker:
         self._identify_interval_s: float = 10.0
 
         # Audio Direction-of-Arrival for steering head toward speaker
+        # Lazy init: AudioDoA shares GStreamer resources with the camera pipeline.
+        # Initializing it in __init__ (before the camera loop starts) can corrupt
+        # the video GStreamer pipeline. We defer until first use.
         self._audio_doa: Optional[object] = None
+        self._audio_doa_enabled = audio_doa_enabled
+        self._audio_doa_init_attempted = False
         self._doa_target_yaw_rad: float | None = None
         self._doa_active_until: float = 0.0
-        if audio_doa_enabled and _AudioDoA is not None:
-            try:
-                self._audio_doa = _AudioDoA()
-                logger.info("AudioDoA initialized")
-            except Exception as exc:
-                logger.debug("AudioDoA not available: %s", exc)
 
     def _configure_debug_window_environment(self) -> None:
         """Prepare Qt env vars to reduce noisy warnings in OpenCV debug windows."""
@@ -212,6 +211,14 @@ class CameraWorker:
 
     def _activate_doa_steering(self, duration_s: float = 2.5) -> None:
         """Read DOA and activate temporary yaw steering toward the sound source."""
+        if not self._audio_doa_init_attempted:
+            self._audio_doa_init_attempted = True
+            if self._audio_doa_enabled and _AudioDoA is not None:
+                try:
+                    self._audio_doa = _AudioDoA()
+                    logger.info("AudioDoA initialized (lazy)")
+                except Exception as exc:
+                    logger.debug("AudioDoA not available: %s", exc)
         try:
             angle_rad, speech_detected = self._audio_doa.get_DoA()  # type: ignore[union-attr]
             # Mapping: π/2 = front (yaw=0), 0 = left (+yaw), π = right (-yaw)

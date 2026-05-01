@@ -8,3 +8,4 @@ reachy_mini_toolbox
 textual>=0.80.0
 insightface>=0.7.3
 onnxruntime>=1.16.3
+opencv-contrib-python>=4.8.0
