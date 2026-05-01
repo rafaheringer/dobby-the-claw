@@ -26,6 +26,7 @@ class OpenClawGatewayConfig:
     bearer_token: str
     timeout_s: float
     default_language: str
+    delegate_model: str = "anthropic/claude-sonnet-4-6"
 
 
 class OpenClawGatewayClient:
@@ -86,6 +87,7 @@ class OpenClawGatewayClient:
                     "sessionKey": session_key,
                     "idempotencyKey": f"bridge-{uuid.uuid4()}",
                     "message": prompt,
+                    "model": self._config.delegate_model,
                 },
                 expect_final=True,
             )

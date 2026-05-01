@@ -72,6 +72,7 @@ def build_tool_registry(
                 bearer_token=config.openclaw_bearer_token,
                 timeout_s=config.openclaw_timeout_s,
                 default_language=config.stt_language,
+                delegate_model=config.openclaw_delegate_model,
             )
         )
         tool_registry.register(
