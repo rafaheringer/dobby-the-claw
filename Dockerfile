@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-alsa \
+    gstreamer1.0-nice \
     libnice-dev \
     libnice10 \
     && rm -rf /var/lib/apt/lists/*
@@ -33,6 +34,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src /app/src
 
 ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
 # Disable GUI debug window — no display in container
 ENV VISION_DEBUG_WINDOW=0
 

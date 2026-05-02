@@ -9,5 +9,7 @@ services:
       - ${HOME:-/home/dobby}/.dobby:/root/.dobby
       # InsightFace model cache (~50 MB) — avoids re-download on every restart
       - ${HOME:-/home/dobby}/.insightface:/root/.insightface
+      # HuggingFace model cache — persists emotions library and other HF datasets
+      - ${HOME:-/home/dobby}/.cache/huggingface:/root/.cache/huggingface
       # Optional: custom wakeword .onnx model (set WAKEWORD_MODEL_PATH=models/xxx.onnx in .env)
       - ./models:/app/models:ro
