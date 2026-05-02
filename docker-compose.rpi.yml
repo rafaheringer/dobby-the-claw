@@ -5,3 +5,7 @@ services:
       - /dev/snd:/dev/snd
     group_add:
       - audio
+    volumes:
+      - /opt/gst-plugins-rs:/opt/gst-plugins-rs:ro
+    environment:
+      - GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu

@@ -7,12 +7,24 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     build-essential \
+    pkg-config \
     libopenblas-dev \
     libgomp1 \
     libglib2.0-0 \
+    libglib2.0-dev \
     libgl1 \
     libsndfile1 \
     portaudio19-dev \
+    libcairo2-dev \
+    libgirepository1.0-dev \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-alsa \
+    libnice-dev \
+    libnice10 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
