@@ -93,6 +93,7 @@ class BridgeConfig:
     speaker_memory_model: str
     speaker_memory_dir: str
     notification_server_port: int
+    scheduler_jobs_file: str
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -179,4 +180,5 @@ class BridgeConfig:
                 "SPEAKER_MEMORY_DIR", "~/.dobby/memories"
             ).strip(),
             notification_server_port=int(os.getenv("NOTIFICATION_SERVER_PORT", "18800")),
+            scheduler_jobs_file=os.getenv("SCHEDULER_JOBS_FILE", "~/.dobby/scheduler_jobs.json").strip(),
         )

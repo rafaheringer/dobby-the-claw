@@ -81,7 +81,11 @@ def build_tool_registry(
         from bridge.runtime.local_scheduler import LocalScheduler
         from bridge.tools.create_reminder import CreateReminderTool
         from bridge.tools.cancel_reminder import CancelReminderTool
-        scheduler = LocalScheduler(notification_enqueue)
+        scheduler = LocalScheduler(
+            notification_enqueue,
+            jobs_file=config.scheduler_jobs_file if config.scheduler_jobs_file else None,
+        )
+        scheduler.restore()
         tool_registry.register(CreateReminderTool(scheduler))
         tool_registry.register(CancelReminderTool(scheduler))
     if config.openclaw_enabled and config.openclaw_ws_url:

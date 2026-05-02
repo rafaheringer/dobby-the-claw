@@ -16,7 +16,8 @@
       "Bash(.venv/Scripts/python:*)",
       "Bash(.venv\\\\Scripts\\\\python.exe *)",
       "WebFetch(domain:pypi.org)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ]
   }
 }
