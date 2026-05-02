@@ -1,11 +1,10 @@
-"""Tool that schedules timed reminders via OpenClaw cron.add."""
+"""Tool that schedules timed reminders via the local native scheduler."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict
 
-from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient
 from bridge.tools.contracts import ToolDefinition, ToolExecutionResult
 
 logger = logging.getLogger(__name__)
@@ -14,9 +13,8 @@ logger = logging.getLogger(__name__)
 class CreateReminderTool:
     """Schedule a reminder that Dobby delivers proactively after a delay."""
 
-    def __init__(self, client: OpenClawGatewayClient, callback_url: str) -> None:
-        self._client = client
-        self._callback_url = callback_url
+    def __init__(self, scheduler: Any) -> None:
+        self._scheduler = scheduler
 
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
@@ -91,9 +89,8 @@ class CreateReminderTool:
             )
 
         try:
-            job_id = self._client.schedule_reminder(
-                message=message,
-                callback_url=self._callback_url,
+            job_id = self._scheduler.schedule(
+                message,
                 delay_seconds=float(delay_seconds) if delay_seconds is not None else None,
                 repeat_every_seconds=float(repeat_every_seconds) if repeat_every_seconds is not None else None,
                 cron_expression=str(cron_expression).strip() if cron_expression is not None else None,

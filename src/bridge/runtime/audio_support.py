@@ -53,6 +53,7 @@ def build_tool_registry(
     camera_worker: Optional[CameraWorker],
     motion_manager: Optional[MotionManager],
     speaker_memory=None,
+    notification_enqueue=None,
 ) -> ToolRegistry:
     """Build and populate runtime tool registry based on config."""
     tool_registry = ToolRegistry()
@@ -76,6 +77,13 @@ def build_tool_registry(
         tool_registry.register(RememberFactTool(speaker_memory, camera_worker))
     if DANCE_AVAILABLE and motion_manager is not None:
         tool_registry.register(DanceTool(motion_manager))
+    if notification_enqueue is not None:
+        from bridge.runtime.local_scheduler import LocalScheduler
+        from bridge.tools.create_reminder import CreateReminderTool
+        from bridge.tools.cancel_reminder import CancelReminderTool
+        scheduler = LocalScheduler(notification_enqueue)
+        tool_registry.register(CreateReminderTool(scheduler))
+        tool_registry.register(CancelReminderTool(scheduler))
     if config.openclaw_enabled and config.openclaw_ws_url:
         openclaw_client = OpenClawGatewayClient(
             OpenClawGatewayConfig(
@@ -89,15 +97,6 @@ def build_tool_registry(
         tool_registry.register(
             OpenClawDelegateTool(openclaw_client, default_language=config.stt_language)
         )
-        if config.notification_callback_base_url:
-            from bridge.tools.create_reminder import CreateReminderTool
-            from bridge.tools.cancel_reminder import CancelReminderTool
-            tool_registry.register(
-                CreateReminderTool(openclaw_client, callback_url=config.notification_callback_base_url)
-            )
-            tool_registry.register(CancelReminderTool(openclaw_client))
-        else:
-            logging.warning("NOTIFICATION_CALLBACK_BASE_URL is not set — create_reminder and cancel_reminder tools disabled")
     if config.home_assistant_enabled:
         if not config.home_assistant_token:
             logging.warning("HOME_ASSISTANT_ENABLED is true but HOME_ASSISTANT_TOKEN is empty")

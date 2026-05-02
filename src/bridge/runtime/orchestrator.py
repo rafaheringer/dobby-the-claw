@@ -101,8 +101,14 @@ class RuntimeOrchestrator:
                 api_key=self.api_key,
             )
 
+        self._notification_queue: "Queue[str]" = Queue()
+
         self.tool_runtime = tool_runtime or build_tool_runtime(
-            config, camera_worker, motion_manager, speaker_memory=self._speaker_memory
+            config,
+            camera_worker,
+            motion_manager,
+            speaker_memory=self._speaker_memory,
+            notification_enqueue=self._notification_queue.put,
         )
 
         if self.motion_manager is not None:
@@ -179,7 +185,11 @@ class RuntimeOrchestrator:
             threading.Thread(target=self._input_worker, daemon=True).start()
 
         if self.config.notification_server_port > 0:
-            self._notification_server = NotificationServer("0.0.0.0", self.config.notification_server_port)
+            self._notification_server = NotificationServer(
+                "0.0.0.0",
+                self.config.notification_server_port,
+                notification_queue=self._notification_queue,
+            )
             self._notification_server.start()
 
         try:
@@ -189,10 +199,7 @@ class RuntimeOrchestrator:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
 
                 if self.sleeping:
-                    has_notification = (
-                        self._notification_server is not None
-                        and not self._notification_server.queue.empty()
-                    )
+                    has_notification = not self._notification_queue.empty()
                     if sample is not None and self.wakeword.process_sample(self.input_sample_rate, sample):
                         self._wake_from_sleep_mode()
                     elif has_notification:
@@ -675,7 +682,7 @@ class RuntimeOrchestrator:
 
     def _drain_notification_queue(self) -> None:
         """Inject pending async notifications into the active realtime session."""
-        if self._notification_server is None or self._notification_server.queue.empty():
+        if self._notification_queue.empty():
             return
         if self.realtime is None or not self.realtime.wait_until_ready(timeout_s=0.0):
             return
@@ -683,7 +690,7 @@ class RuntimeOrchestrator:
             return
         while True:
             try:
-                summary = self._notification_server.queue.get_nowait()
+                summary = self._notification_queue.get_nowait()
             except Empty:
                 break
             notice = (

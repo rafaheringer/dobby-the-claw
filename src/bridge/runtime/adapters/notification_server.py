@@ -1,4 +1,4 @@
-"""HTTP server that receives async webhook notifications from OpenClaw cron jobs."""
+"""HTTP server that receives async webhook notifications on POST /notify."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class NotificationServer:
-    """Receive OpenClaw cron webhook deliveries on POST /notify."""
+    """Receive webhook deliveries on POST /notify and enqueue the summary."""
 
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, notification_queue: Optional[queue.Queue[str]] = None) -> None:
         self._host = host
         self._port = port
-        self.queue: queue.Queue[str] = queue.Queue()
+        self.queue: queue.Queue[str] = notification_queue if notification_queue is not None else queue.Queue()
         self._server: Optional[HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 

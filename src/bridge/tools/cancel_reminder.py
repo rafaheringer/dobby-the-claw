@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
-from bridge.runtime.adapters.openclaw_gateway import OpenClawGatewayClient
 from bridge.tools.contracts import ToolDefinition, ToolExecutionResult
+
+logger = logging.getLogger(__name__)
 
 
 class CancelReminderTool:
     """Cancel a previously scheduled reminder by its job ID."""
 
-    def __init__(self, client: OpenClawGatewayClient) -> None:
-        self._client = client
+    def __init__(self, scheduler: Any) -> None:
+        self._scheduler = scheduler
 
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
@@ -40,8 +42,11 @@ class CancelReminderTool:
             return ToolExecutionResult(output={"ok": False, "message": "job_id is required"})
 
         try:
-            self._client.cancel_reminder(job_id)
+            found = self._scheduler.cancel(job_id)
         except Exception as exc:
+            logger.exception("cancel_reminder: failed — %s", exc)
             return ToolExecutionResult(output={"ok": False, "message": f"Failed to cancel reminder: {exc}"})
 
+        if not found:
+            return ToolExecutionResult(output={"ok": False, "message": f"No active reminder found for job_id={job_id}"})
         return ToolExecutionResult(output={"ok": True, "cancelled": True, "job_id": job_id})

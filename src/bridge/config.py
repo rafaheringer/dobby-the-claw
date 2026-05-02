@@ -93,7 +93,6 @@ class BridgeConfig:
     speaker_memory_model: str
     speaker_memory_dir: str
     notification_server_port: int
-    notification_callback_base_url: str
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -180,5 +179,4 @@ class BridgeConfig:
                 "SPEAKER_MEMORY_DIR", "~/.dobby/memories"
             ).strip(),
             notification_server_port=int(os.getenv("NOTIFICATION_SERVER_PORT", "18800")),
-            notification_callback_base_url=os.getenv("NOTIFICATION_CALLBACK_BASE_URL", "").strip(),
         )
