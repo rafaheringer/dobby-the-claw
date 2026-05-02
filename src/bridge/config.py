@@ -121,10 +121,8 @@ class BridgeConfig:
             realtime_transcription_model=os.getenv(
                 "REALTIME_TRANSCRIPTION_MODEL", "gpt-4o-transcribe"
             ),
-            realtime_vad_silence_ms=int(os.getenv("REALTIME_VAD_SILENCE_MS", "250")),
-            realtime_vad_prefix_padding_ms=int(
-                os.getenv("REALTIME_VAD_PREFIX_PADDING_MS", "200")
-            ),
+            realtime_vad_silence_ms=int(os.getenv("REALTIME_VAD_SILENCE_MS", "200")),
+            realtime_vad_prefix_padding_ms=int(os.getenv("REALTIME_VAD_PREFIX_PADDING_MS", "150")),
             reachy_output_volume=int(os.getenv("REACHY_OUTPUT_VOLUME", "-1")),
             stt_language=os.getenv("STT_LANGUAGE", "pt"),
             reachy_bridge_url=os.getenv("REACHY_BRIDGE_URL", "http://reachy-bridge:8001"),
