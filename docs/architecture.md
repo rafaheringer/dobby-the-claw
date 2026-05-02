@@ -18,8 +18,9 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 - **CameraWorker**: continuous frame loop for face tracking, head steering, and speaker identification. Provides index-finger-based antenna override (1 finger → both antennas, 2 fingers → left/right split). AudioDoA is lazy-initialized on first use to avoid GStreamer pipeline conflicts.
 - **FaceRecognizer** (InsightFace `buffalo_s`): enrolls and identifies speakers by face embedding. Profiles stored as `.npy` files under `SPEAKER_ID_PROFILES_DIR`.
 - **SpeakerMemory** (mem0 + Qdrant local + SQLite): extracts lasting facts from each session using an LLM and persists them under `SPEAKER_MEMORY_DIR`. Facts are injected into the session identity prompt on the next wakeup.
-- **NotificationServer**: lightweight HTTP server that receives webhook callbacks from OpenClaw (reminders, scheduled alerts) and delivers them into the active realtime session.
-- **OpenClaw Gateway** (WebSocket): delegated task execution and cron scheduling.
+- **NotificationServer**: lightweight HTTP server that receives async external notifications and delivers them into the active realtime session.
+- **LocalScheduler**: native in-process scheduler for reminders, timers, interval jobs, and cron-based recurring notifications. Persists jobs to disk and restores them on startup.
+- **OpenClaw Gateway** (WebSocket): delegated task execution for complex or long-running tasks.
 - **Home Assistant** (WebSocket API): entity discovery and service execution.
 
 ## Runtime Core Boundaries
@@ -43,7 +44,7 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
    - `express_emotion`: Reachy plays a recorded move from `pollen-robotics/reachy-mini-emotions-library`.
    - `enroll_speaker`: captures 4 camera frames, registers face embedding under the given name.
    - `remember_fact`: saves an explicit user-stated fact to SpeakerMemory immediately (background thread).
-   - `create_reminder` / `cancel_reminder`: schedules/cancels OpenClaw cron jobs that deliver webhook callbacks to NotificationServer.
+   - `create_reminder` / `cancel_reminder`: schedules/cancels native local reminder jobs, including one-time, interval, and cron-based recurrence.
    - `take_photo`: captures a frame and encodes it for the model.
    - `dance`: plays a choreography from the dances library.
 6. Realtime model produces final user-facing response.

@@ -15,7 +15,7 @@ User → voice → OpenAI Realtime API → Bridge → Reachy Mini (motion, gestu
 - **Wake word detection** — robot sleeps when idle and wakes on "Dobby" (offline, via openWakeWord)
 - **Speaker identification** — recognizes faces via InsightFace; Dobby addresses each person by name and can enroll new profiles mid-conversation
 - **Per-speaker persistent memory** — extracts lasting facts from each session (via mem0 + OpenAI) and injects them at next session start
-- **Proactive reminders** — schedules and delivers async notifications via OpenClaw cron + webhook callback
+- **Proactive reminders** — schedules one-time or recurring reminders natively, with persistence across bridge restarts
 - **Smart home control** — discovers and controls Home Assistant devices via voice
 - **Task delegation** — offloads complex or long-running tasks to OpenClaw
 - **Finger-to-antenna control** — index fingers mapped to antenna angles via MediaPipe
@@ -151,8 +151,8 @@ Key environment variables (full list in `.env.example`):
 | `SPEAKER_MEMORY_ENABLED` | `0` | Enable per-speaker persistent memory via mem0 |
 | `SPEAKER_MEMORY_MODEL` | `gpt-4o-mini` | Model used to extract facts from sessions |
 | `SPEAKER_MEMORY_DIR` | `~/.dobby/memories` | Directory for mem0 storage (Qdrant + SQLite) |
-| `NOTIFICATION_SERVER_PORT` | `18800` | Port for OpenClaw webhook callback delivery |
-| `NOTIFICATION_CALLBACK_BASE_URL` | _(empty)_ | URL OpenClaw uses to deliver reminders back to Dobby |
+| `NOTIFICATION_SERVER_PORT` | `18800` | Port for the local notification server used by async external notifications |
+| `SCHEDULER_JOBS_FILE` | `~/.dobby/scheduler_jobs.json` | Persistent storage for native scheduled reminders |
 | `HOME_ASSISTANT_ENABLED` | `0` | Enable Home Assistant integration |
 | `OPENCLAW_ENABLED` | `1` | Enable OpenClaw task delegation |
 
