@@ -12,12 +12,15 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 
 ## Components
 
-- OpenAI Realtime API: live transcription, model responses, streamed assistant audio.
-- Bridge Runtime (Python): state machine, orchestration, tool routing, wakeword/idle logic.
-- Reachy SDK (active path): motion, gestures, camera/audio media.
-- Camera worker can provide index-finger-based antenna override (1 finger -> both antennas, 2 fingers -> left/right split), temporarily overriding antenna breathing sway while active.
-- OpenClaw Gateway (WebSocket): delegated task execution.
-- Home Assistant (WebSocket API): entity discovery and service execution.
+- **OpenAI Realtime API**: live transcription, model responses, streamed assistant audio.
+- **Bridge Runtime** (Python): state machine, orchestration, tool routing, wakeword/idle logic.
+- **Reachy SDK** (active path): motion, gestures, camera/audio media.
+- **CameraWorker**: continuous frame loop for face tracking, head steering, and speaker identification. Provides index-finger-based antenna override (1 finger → both antennas, 2 fingers → left/right split). AudioDoA is lazy-initialized on first use to avoid GStreamer pipeline conflicts.
+- **FaceRecognizer** (InsightFace `buffalo_s`): enrolls and identifies speakers by face embedding. Profiles stored as `.npy` files under `SPEAKER_ID_PROFILES_DIR`.
+- **SpeakerMemory** (mem0 + Qdrant local + SQLite): extracts lasting facts from each session using an LLM and persists them under `SPEAKER_MEMORY_DIR`. Facts are injected into the session identity prompt on the next wakeup.
+- **NotificationServer**: lightweight HTTP server that receives webhook callbacks from OpenClaw (reminders, scheduled alerts) and delivers them into the active realtime session.
+- **OpenClaw Gateway** (WebSocket): delegated task execution and cron scheduling.
+- **Home Assistant** (WebSocket API): entity discovery and service execution.
 
 ## Runtime Core Boundaries
 
@@ -29,22 +32,23 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
 
 ## Data Flow (Simplified)
 
-1. Audio input enters wakeword/voice pipeline.
-2. Realtime callbacks transition state (`WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`).
-3. Model may call tools.
-4. If `delegate_task` is called:
-   - Bridge informs user to wait (instruction-level behavior in identity prompt).
-   - Bridge enters `DELEGATING` and triggers waiting gesture.
-   - Tool calls OpenClaw Gateway over WebSocket RPC (`connect.challenge` + `connect`, then `chat.send`/`chat.history`) and waits for final text.
-   - Tool result returns to Realtime function output.
-5. If Home Assistant tools are called:
-   - `discover_home_devices` fetches entities (`get_states`) and service schemas (`get_services`).
-   - `control_home_device` performs `call_service` for the selected target.
-   - Sensitive domains require explicit confirmation via tool argument.
-6. If `go_to_sleep` is called, the runtime enters sleep mode and waits for the offline wake word.
-7. If `express_emotion` is called, Reachy plays a recorded move from dataset `pollen-robotics/reachy-mini-emotions-library`.
-8. Realtime model produces final user-facing response.
-9. Assistant audio is streamed to Reachy speaker.
+1. **Startup / wakeup**: orchestrator runs `identify_current_speaker()` before starting the session. If a known face is detected, their name and any persisted memories (from `SpeakerMemory.load()`) are injected into the session identity prompt.
+2. Audio input enters wakeword/voice pipeline.
+3. On `speech_start`: a background thread calls `identify_current_speaker()` via AudioDoA steering + face recognition. If the speaker changed since the last turn, a SYSTEM NOTICE is injected into the realtime session.
+4. Realtime callbacks transition state (`WAKE_WORD`, `STT_RECEIVED`, `RESPONSE_READY`).
+5. Model may call tools:
+   - `delegate_task`: Bridge enters `DELEGATING`, calls OpenClaw Gateway over WebSocket RPC, waits for result.
+   - `discover_home_devices` / `control_home_device`: HA entity lookup and service execution. Sensitive domains require explicit confirmation.
+   - `go_to_sleep`: runtime enters sleep mode, saves session to SpeakerMemory, waits for offline wake word.
+   - `express_emotion`: Reachy plays a recorded move from `pollen-robotics/reachy-mini-emotions-library`.
+   - `enroll_speaker`: captures 4 camera frames, registers face embedding under the given name.
+   - `remember_fact`: saves an explicit user-stated fact to SpeakerMemory immediately (background thread).
+   - `create_reminder` / `cancel_reminder`: schedules/cancels OpenClaw cron jobs that deliver webhook callbacks to NotificationServer.
+   - `take_photo`: captures a frame and encodes it for the model.
+   - `dance`: plays a choreography from the dances library.
+6. Realtime model produces final user-facing response.
+7. Assistant audio is streamed to Reachy speaker.
+8. On sleep entry: `SpeakerMemory.save_async()` extracts lasting facts from the session conversation and persists them.
 
 ## State Machine
 
@@ -69,5 +73,6 @@ Primary runtime configuration comes from `.env` via `BridgeConfig.from_env()`.
 ## Prompt/Policy Composition
 
 - Base assistant identity prompt is loaded from `src/prompts/identity.txt`.
-- Tool runtime aggregates per-tool `runtime_guardrail` entries.
-- Orchestrator appends aggregated tool guardrails to session instructions generically (without hard-coding specific tool names).
+- Tool runtime aggregates per-tool `runtime_guardrail` entries and appends them as `## RUNTIME TOOL GUARDRAILS` in the session instructions.
+- Orchestrator appends a `## FALANTE ATUAL` section when a speaker is identified, and a `## O QUE VOCÊ JÁ SABE SOBRE [NAME]` section when memories exist.
+- Home Assistant entity catalog is appended as `## DISPOSITIVOS HOME ASSISTANT DISPONÍVEIS` when HA is enabled.
