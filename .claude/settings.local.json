@@ -19,7 +19,8 @@
       "WebFetch(domain:github.com)",
       "WebSearch",
       "Bash(ruff check *)",
-      "Bash(Get-Content *)"
+      "Bash(Get-Content *)",
+      "Bash(git *)"
     ]
   }
 }

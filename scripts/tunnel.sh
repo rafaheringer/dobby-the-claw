@@ -7,6 +7,7 @@
 #   localhost:8443  -> Pi:8443  (Reachy WebRTC signaling)
 #   localhost:18789 -> Pi:18789 (OpenClaw UI)
 #   localhost:8123  -> Pi:8123  (Home Assistant UI)
+#   localhost:61208 -> Pi:61208 (Glances system monitor)
 #   Pi:18800        <- localhost:18800  (Dobby notification webhook — reverse tunnel)
 #
 # Usage:
@@ -29,6 +30,7 @@ start() {
         -L 8443:127.0.0.1:8443 \
         -L 18789:127.0.0.1:18789 \
         -L 8123:127.0.0.1:8123 \
+        -L 61208:127.0.0.1:61208 \
         -R 18800:127.0.0.1:18800 \
         "$PI" > /dev/null 2>&1 &
     SSH_PID=$!
@@ -41,6 +43,7 @@ start() {
     echo "  Reachy WebRTC         -> wss://localhost:8443"
     echo "  OpenClaw              -> http://localhost:18789"
     echo "  Home Assistant        -> http://localhost:8123"
+    echo "  Glances               -> http://localhost:61208"
     echo "  Notification webhook  <- http://127.0.0.1:18800 (reverse tunnel)"
     echo ""
     echo "Stop with: ./scripts/tunnel.sh stop"
