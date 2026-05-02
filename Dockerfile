@@ -31,6 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download openWakeWord built-in models (melspectrogram, embedding, etc.)
+RUN python3 -c "import openwakeword; openwakeword.utils.download_models()"
+
 COPY src /app/src
 
 ENV PYTHONPATH=/app/src
