@@ -48,6 +48,8 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
    - `take_photo`: captures a frame and encodes it for the model.
    - `dance`: plays a choreography from the dances library.
    - `get_weather`: fetches current conditions and daily forecast from Open-Meteo for a given city (default: Rio de Janeiro). No API key required.
+   - `play_music`: plays music on Spotify via Alexa by calling the `script.play_music` HA script. Accepts a query and optional room (escritório/sala/quarto).
+   - `stop_music`: stops music on Alexa. Auto-detects which Alexa is playing by querying HA states; accepts optional room override.
 6. Realtime model produces final user-facing response.
 7. Assistant audio is streamed to Reachy speaker.
 8. On sleep entry: `SpeakerMemory.save_async()` extracts lasting facts from the session conversation and persists them.

@@ -25,6 +25,8 @@ from bridge.tools import (
     HomeAssistantWsClient,
     HomeAssistantWsConfig,
     OpenClawDelegateTool,
+    PlayMusicTool,
+    StopMusicTool,
     ToolRegistry,
     WeatherTool,
 )
@@ -123,6 +125,8 @@ def build_tool_registry(
                     sensitive_domains=config.home_assistant_sensitive_domains,
                 )
             )
+            tool_registry.register(PlayMusicTool(home_assistant_client))
+            tool_registry.register(StopMusicTool(home_assistant_client))
     return tool_registry
 
 

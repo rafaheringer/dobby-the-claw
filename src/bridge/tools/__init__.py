@@ -10,7 +10,9 @@ from bridge.tools.ha_discover import HomeAssistantDiscoverTool
 from bridge.tools.ha_execute_action import HomeAssistantExecuteActionTool
 from homeassistant.home_assistant_client import HomeAssistantWsClient, HomeAssistantWsConfig
 from bridge.tools.openclaw_delegate import OpenClawDelegateTool
+from bridge.tools.play_music import PlayMusicTool
 from bridge.tools.runtime import ToolRegistry
+from bridge.tools.stop_music import StopMusicTool
 from bridge.tools.weather import WeatherTool
 
 __all__ = [
@@ -24,6 +26,8 @@ __all__ = [
     "HomeAssistantWsClient",
     "HomeAssistantWsConfig",
     "OpenClawDelegateTool",
+    "PlayMusicTool",
+    "StopMusicTool",
     "ToolExecutionResult",
     "ToolRegistry",
     "WeatherTool",
