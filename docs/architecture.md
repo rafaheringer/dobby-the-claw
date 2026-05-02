@@ -47,6 +47,7 @@ This document captures the current runtime architecture for Reachy Mini + Bridge
    - `create_reminder` / `cancel_reminder`: schedules/cancels native local reminder jobs, including one-time, interval, and cron-based recurrence.
    - `take_photo`: captures a frame and encodes it for the model.
    - `dance`: plays a choreography from the dances library.
+   - `get_weather`: fetches current conditions and daily forecast from Open-Meteo for a given city (default: Rio de Janeiro). No API key required.
 6. Realtime model produces final user-facing response.
 7. Assistant audio is streamed to Reachy speaker.
 8. On sleep entry: `SpeakerMemory.save_async()` extracts lasting facts from the session conversation and persists them.
@@ -73,7 +74,7 @@ Primary runtime configuration comes from `.env` via `BridgeConfig.from_env()`.
 
 ## Prompt/Policy Composition
 
-- Base assistant identity prompt is loaded from `src/prompts/identity.txt`.
+- Base assistant identity prompt is loaded from `src/prompts/identity.md`.
 - Tool runtime aggregates per-tool `runtime_guardrail` entries and appends them as `## RUNTIME TOOL GUARDRAILS` in the session instructions.
 - Orchestrator appends a `## FALANTE ATUAL` section when a speaker is identified, and a `## O QUE VOCÊ JÁ SABE SOBRE [NAME]` section when memories exist.
 - Home Assistant entity catalog is appended as `## DISPOSITIVOS HOME ASSISTANT DISPONÍVEIS` when HA is enabled.

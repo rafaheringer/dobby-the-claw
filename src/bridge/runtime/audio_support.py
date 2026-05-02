@@ -26,6 +26,7 @@ from bridge.tools import (
     HomeAssistantWsConfig,
     OpenClawDelegateTool,
     ToolRegistry,
+    WeatherTool,
 )
 from bridge.tools.dance import DANCE_AVAILABLE
 
@@ -57,6 +58,7 @@ def build_tool_registry(
 ) -> ToolRegistry:
     """Build and populate runtime tool registry based on config."""
     tool_registry = ToolRegistry()
+    tool_registry.register(WeatherTool(config.weather_default_city))
     tool_registry.register(
         GoToSleepTool(
             wakeword_enabled=config.offline_wakeword_enabled,

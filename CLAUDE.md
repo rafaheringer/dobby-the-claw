@@ -71,7 +71,7 @@ Key constraints to enforce:
 
 ## Key Conventions
 
-- **Language:** All AI responses default to Brazilian Portuguese (pt-BR) per `src/prompts/identity.txt`
+- **Language:** All AI responses default to Brazilian Portuguese (pt-BR) per `src/prompts/identity.md`
 - **Typed results:** Use `ReachyActionResult` and `ToolExecutionResult` for all action returns
 - **Delegation:** When uncertain, the model uses `delegate_task` (OpenClaw) rather than refusing
 - **Home Assistant sensitive domains** (`lock`, `alarm_control_panel`, `cover`, `button`) require explicit user confirmation before executing

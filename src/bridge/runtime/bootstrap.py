@@ -124,9 +124,9 @@ def stop_runtime_workers(runtime: ReachyRuntime) -> None:
 
 
 def load_identity_prompt() -> str:
-    """Load robot identity instructions from `prompts/identity.txt`."""
+    """Load robot identity instructions from `prompts/identity.md`."""
     src_root = Path(__file__).resolve().parents[2]
-    identity_path = src_root / "prompts" / "identity.txt"
+    identity_path = src_root / "prompts" / "identity.md"
     try:
         content = identity_path.read_text(encoding="utf-8").strip()
     except OSError as exc:

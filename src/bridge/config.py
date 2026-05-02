@@ -94,6 +94,7 @@ class BridgeConfig:
     speaker_memory_dir: str
     notification_server_port: int
     scheduler_jobs_file: str
+    weather_default_city: str
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -181,4 +182,5 @@ class BridgeConfig:
             ).strip(),
             notification_server_port=int(os.getenv("NOTIFICATION_SERVER_PORT", "18800")),
             scheduler_jobs_file=os.getenv("SCHEDULER_JOBS_FILE", "~/.dobby/scheduler_jobs.json").strip(),
+            weather_default_city=os.getenv("WEATHER_DEFAULT_CITY", "Rio de Janeiro").strip(),
         )

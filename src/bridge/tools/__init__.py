@@ -11,6 +11,7 @@ from bridge.tools.ha_execute_action import HomeAssistantExecuteActionTool
 from homeassistant.home_assistant_client import HomeAssistantWsClient, HomeAssistantWsConfig
 from bridge.tools.openclaw_delegate import OpenClawDelegateTool
 from bridge.tools.runtime import ToolRegistry
+from bridge.tools.weather import WeatherTool
 
 __all__ = [
     "CameraSnapshotTool",
@@ -25,4 +26,5 @@ __all__ = [
     "OpenClawDelegateTool",
     "ToolExecutionResult",
     "ToolRegistry",
+    "WeatherTool",
 ]
