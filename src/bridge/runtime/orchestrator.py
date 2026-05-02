@@ -552,7 +552,7 @@ class RuntimeOrchestrator:
             callbacks=callbacks,
         )
         self.realtime.start()
-        if not self.realtime.wait_until_ready(timeout_s=20.0):
+        if not self.realtime.wait_until_ready(timeout_s=35.0):
             self.realtime.stop()
             self.realtime = None
             raise RuntimeError("Failed to start OpenAI Realtime session")
