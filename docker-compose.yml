@@ -9,9 +9,13 @@ services:
       LD_LIBRARY_PATH: /opt/gstreamer/lib/aarch64-linux-gnu
     restart: "no"
     network_mode: host
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
     volumes:
-      # Expose Reachy local camera IPC socket so on-device Docker clients can use the LOCAL backend.
-      - /tmp/reachymini_camera_socket:/tmp/reachymini_camera_socket
+      # Share host /tmp so Reachy local IPC sockets stay visible across daemon restarts.
+      - /tmp:/tmp
       # Face profiles — persists enrolled speakers across restarts/rebuilds
       - ${HOME:-/home/dobby}/.dobby:/root/.dobby
       # InsightFace model cache (~50 MB) — avoids re-download on every restart

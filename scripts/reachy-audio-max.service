@@ -1,0 +1,12 @@
+[Unit]
+Description=Force Reachy Mini speaker volume to maximum
+After=sound.target systemd-udev-settle.service reachy-mini-daemon.service
+Wants=sound.target systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/dobby/dobby-the-claw/scripts/set-reachy-audio-max.sh 100%
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

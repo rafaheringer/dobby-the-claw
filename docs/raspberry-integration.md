@@ -269,6 +269,32 @@ sudo systemctl status reachy-mini-daemon
 journalctl -u reachy-mini-daemon -f
 ```
 
+### Persisting Maximum Speaker Volume
+
+Install ALSA tools once so the Raspberry can manage the Reachy USB audio mixer:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y alsa-utils
+```
+
+Set the bridge startup volume to maximum in `~/dobby-the-claw/.env`:
+
+```bash
+REACHY_OUTPUT_VOLUME=100
+```
+
+To force the Reachy speaker mixer back to `100%` on every Raspberry reboot, install the tracked helper script and systemd unit:
+
+```bash
+chmod +x ~/dobby-the-claw/scripts/set-reachy-audio-max.sh
+sudo cp ~/dobby-the-claw/scripts/reachy-audio-max.service /etc/systemd/system/reachy-audio-max.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now reachy-audio-max.service
+```
+
+The unit waits for the Reachy USB audio card and then drives both playback mixer controls (`PCM` and `PCM,1`) to `100%`.
+
 ---
 
 ## Deploying the Bridge
@@ -282,6 +308,8 @@ cp .env.example .env
 nano .env  # Fill in OPENAI_API_KEY, REACHY_BRIDGE_URL, OPENCLAW_*, HA_* etc.
 ```
 
+On Raspberry Pi, set `REACHY_OUTPUT_VOLUME=100` in `.env` so the bridge re-applies max output volume whenever it starts.
+
 Run via Docker:
 
 ```bash
@@ -290,5 +318,11 @@ docker compose up --build -d
 # View logs
 docker compose logs -f
 ```
+
+On Raspberry Pi, the bridge container uses two host integrations for local media:
+- `/tmp` is mounted so the Reachy local IPC camera socket remains visible inside Docker.
+- `/dev/snd` is exposed so the SDK can use ALSA for microphone and speaker access.
+
+If you restart `reachy-mini-daemon`, wait until the service is fully `active` again before restarting the bridge container. The Docker bridge relies on the local IPC camera socket at `/tmp/reachymini_camera_socket`, and restarting the bridge while that socket is still absent can make container startup fail.
 
 The `REACHY_BRIDGE_URL` in `.env` should point to the local Reachy daemon WebSocket (typically `ws://localhost:<port>`).
