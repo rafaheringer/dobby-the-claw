@@ -61,6 +61,8 @@ class BridgeConfig:
     reachy_bridge_url: str
     vision_debug_window: bool
     vision_debug_log_interval_s: float
+    vision_tracking_max_width: int
+    vision_tracking_fps: float
     antenna_finger_tracking_enabled: bool
     antenna_finger_max_angle_deg: float
     camera_tool_enabled: bool
@@ -128,6 +130,8 @@ class BridgeConfig:
             reachy_bridge_url=os.getenv("REACHY_BRIDGE_URL", "http://reachy-bridge:8001"),
             vision_debug_window=_env_flag("VISION_DEBUG_WINDOW", False),
             vision_debug_log_interval_s=float(os.getenv("VISION_DEBUG_LOG_INTERVAL_S", "1.0")),
+            vision_tracking_max_width=int(os.getenv("VISION_TRACKING_MAX_WIDTH", "640")),
+            vision_tracking_fps=float(os.getenv("VISION_TRACKING_FPS", "15.0")),
             antenna_finger_tracking_enabled=_env_flag("ANTENNA_FINGER_TRACKING_ENABLED", True),
             antenna_finger_max_angle_deg=float(os.getenv("ANTENNA_FINGER_MAX_ANGLE_DEG", "180.0")),
             camera_tool_enabled=_env_flag("CAMERA_TOOL_ENABLED", True),

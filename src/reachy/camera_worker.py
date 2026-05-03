@@ -44,6 +44,8 @@ class CameraWorker:
         head_tracker: Any = None,
         debug_visual_window: bool = False,
         debug_log_interval_s: float = 1.0,
+        tracking_max_width: int = 640,
+        tracking_fps: float = 15.0,
         antenna_finger_tracking_enabled: bool = True,
         antenna_finger_max_angle_deg: float = 28.0,
         face_recognizer: Optional[FaceRecognizer] = None,
@@ -111,6 +113,9 @@ class CameraWorker:
         self._eye_center_smoothing_alpha = 0.22
         self._smoothed_eye_center: Optional[np.ndarray] = None
         self._camera_loop_period_s = 0.02
+        self._tracking_max_width = max(0, int(tracking_max_width))
+        self._tracking_period_s = 0.0 if tracking_fps <= 0 else (1.0 / float(tracking_fps))
+        self._last_tracking_update_ts = 0.0
 
         self._finger_antenna_controller = FingerAntennaController(
             enabled=antenna_finger_tracking_enabled,
@@ -328,7 +333,11 @@ class CameraWorker:
                     with self.frame_lock:
                         self.latest_frame = frame
 
-                    self._update_antenna_finger_control(frame, current_time)
+                    tracking_frame = self._prepare_tracking_frame(frame)
+                    should_run_tracking = self._should_run_tracking(current_time)
+
+                    if should_run_tracking:
+                        self._update_antenna_finger_control(tracking_frame, current_time)
 
                     if self.previous_head_tracking_state and not self.is_head_tracking_enabled:
                         self.last_face_detected_time = current_time
@@ -344,8 +353,8 @@ class CameraWorker:
 
                     self.previous_head_tracking_state = self.is_head_tracking_enabled
 
-                    if self.is_head_tracking_enabled:
-                        tracking_target = self._get_tracking_target(frame)
+                    if self.is_head_tracking_enabled and should_run_tracking:
+                        tracking_target = self._get_tracking_target(tracking_frame)
                         eye_center = None if tracking_target is None else tracking_target[0]
                         head_tilt_rad = 0.0 if tracking_target is None else float(tracking_target[1])
                         eye_center = self._stabilize_eye_center(eye_center)
@@ -493,6 +502,28 @@ class CameraWorker:
             return frame
 
         return self._read_local_camera_fallback(current_time)
+
+    def _prepare_tracking_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        """Downscale frames for CPU-bound tracking while preserving full-res snapshots."""
+        if cv2 is None or self._tracking_max_width <= 0:
+            return frame
+
+        height, width = frame.shape[:2]
+        if width <= self._tracking_max_width:
+            return frame
+
+        scale = self._tracking_max_width / float(width)
+        target_size = (self._tracking_max_width, max(1, int(round(height * scale))))
+        return cv2.resize(frame, target_size, interpolation=cv2.INTER_AREA)
+
+    def _should_run_tracking(self, current_time: float) -> bool:
+        """Return whether CPU-bound tracking should run on this loop iteration."""
+        if self._tracking_period_s <= 0.0:
+            return True
+        if (current_time - self._last_tracking_update_ts) < self._tracking_period_s:
+            return False
+        self._last_tracking_update_ts = current_time
+        return True
 
     def _read_local_camera_fallback(self, current_time: float) -> NDArray[np.uint8] | None:
         """Read from a local Windows webcam when SDK frames are unavailable."""

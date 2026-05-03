@@ -78,6 +78,8 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                 head_tracker=head_tracker,
                 debug_visual_window=config.vision_debug_window,
                 debug_log_interval_s=config.vision_debug_log_interval_s,
+                tracking_max_width=config.vision_tracking_max_width,
+                tracking_fps=config.vision_tracking_fps,
                 antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,
                 antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
                 face_recognizer=face_recognizer,
