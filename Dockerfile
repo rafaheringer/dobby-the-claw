@@ -31,6 +31,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Fix: VP8 frames have GST_CLOCK_TIME_NONE timestamps via WebRTC; appsink with
+# sync=True waits forever for those timestamps → frames never delivered.
+RUN sed -i \
+    's/self\._appsink_video\.set_property("max-buffers", 1)/self._appsink_video.set_property("max-buffers", 1)\n        self._appsink_video.set_property("sync", False)/' \
+    /usr/local/lib/python3.11/site-packages/reachy_mini/media/webrtc_client_gstreamer.py
+
 # Pre-download openWakeWord built-in models (melspectrogram, embedding, etc.)
 RUN python3 -c "import openwakeword; openwakeword.utils.download_models()"
 

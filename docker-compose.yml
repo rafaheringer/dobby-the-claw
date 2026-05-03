@@ -2,9 +2,16 @@ services:
   bridge:
     build: .
     env_file: .env
+    environment:
+      # Match the host Reachy daemon media runtime so SDK WebRTC decoding works in Docker.
+      PATH: /opt/gstreamer/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+      GST_PLUGIN_PATH: /opt/gst-plugins-rs/lib/aarch64-linux-gnu:/opt/gstreamer/lib/aarch64-linux-gnu/gstreamer-1.0
+      LD_LIBRARY_PATH: /opt/gstreamer/lib/aarch64-linux-gnu
     restart: "no"
     network_mode: host
     volumes:
+      # Expose Reachy local camera IPC socket so on-device Docker clients can use the LOCAL backend.
+      - /tmp/reachymini_camera_socket:/tmp/reachymini_camera_socket
       # Face profiles — persists enrolled speakers across restarts/rebuilds
       - ${HOME:-/home/dobby}/.dobby:/root/.dobby
       # InsightFace model cache (~50 MB) — avoids re-download on every restart
@@ -13,3 +20,6 @@ services:
       - ${HOME:-/home/dobby}/.cache/huggingface:/root/.cache/huggingface
       # Optional: custom wakeword .onnx model (set WAKEWORD_MODEL_PATH=models/xxx.onnx in .env)
       - ./models:/app/models:ro
+      # Reuse the same custom GStreamer runtime/plugins required by the Reachy daemon on Raspberry Pi.
+      - /opt/gstreamer:/opt/gstreamer:ro
+      - /opt/gst-plugins-rs:/opt/gst-plugins-rs:ro
