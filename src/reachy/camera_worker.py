@@ -719,19 +719,18 @@ class CameraWorker:
         )
 
     def _maybe_emit_missing_frame_log(self, current_time: float) -> None:
-        """Log camera starvation periodically when debug mode is enabled."""
-        if not self._debug_visual_window:
-            return
+        """Log camera starvation periodically."""
         if (current_time - self._last_missing_frame_log_ts) < self._debug_log_interval_s:
             return
         self._last_missing_frame_log_ts = current_time
+        elapsed = max(0.0, current_time - self._missing_frame_since_ts) if self._missing_frame_since_ts else 0.0
         if self._using_local_camera_fallback:
-            logger.info(
-                "Vision debug window is using local Windows camera fallback (index=%s)",
+            logger.debug(
+                "Camera: using local fallback (index=%s)",
                 self._local_camera_index,
             )
             return
-        logger.info("Vision debug window is waiting for camera frames from Reachy SDK")
+        logger.warning("Camera: no frames from Reachy SDK for %.0fs — check daemon video pipeline", elapsed)
 
     def _render_debug_placeholder(self, current_time: float) -> None:
         """Render a placeholder window while waiting for the first camera frame."""
