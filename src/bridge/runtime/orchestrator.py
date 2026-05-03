@@ -190,11 +190,22 @@ class RuntimeOrchestrator:
                 self.config.notification_server_port,
                 notification_queue=self._notification_queue,
             )
-            self._notification_server.start()
+            try:
+                self._notification_server.start()
+            except OSError as exc:
+                logging.warning(
+                    "[%dms] Notification server failed to start on port %d: %s",
+                    self._elapsed_ms(), self.config.notification_server_port, exc,
+                )
+                self._notification_server = None
 
         try:
             while True:
-                sample = self.media_io.get_audio_sample()
+                try:
+                    sample = self.media_io.get_audio_sample()
+                except Exception as exc:
+                    logging.warning("[%dms] get_audio_sample error: %s", self._elapsed_ms(), exc)
+                    sample = None
                 if sample is not None:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
 
@@ -568,6 +579,7 @@ class RuntimeOrchestrator:
         self.sleeping = False
         self.wakeword.reset()
         self.wakeword.start_auto_calibration()
+        self._mark_user_activity()
 
     def _enter_sleep_mode(self) -> None:
         """Stop active session and place runtime into wakeword-only sleep mode."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
@@ -25,6 +26,14 @@ class NotificationServer:
     def start(self) -> None:
         """Start HTTP server in a daemon thread."""
         notification_queue = self.queue
+
+        class _ReusePortHTTPServer(HTTPServer):
+            def server_bind(self) -> None:
+                try:
+                    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                except (AttributeError, OSError):
+                    pass
+                super().server_bind()
 
         class _Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:
@@ -51,7 +60,7 @@ class NotificationServer:
             def log_message(self, *_: object) -> None:
                 pass
 
-        self._server = HTTPServer((self._host, self._port), _Handler)
+        self._server = _ReusePortHTTPServer((self._host, self._port), _Handler)
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             daemon=True,
@@ -64,5 +73,6 @@ class NotificationServer:
         """Shutdown HTTP server."""
         if self._server is not None:
             self._server.shutdown()
+            self._server.server_close()
             self._server = None
         logger.info("Notification server stopped")
