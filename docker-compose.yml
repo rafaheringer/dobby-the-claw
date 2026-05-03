@@ -2,7 +2,7 @@ services:
   bridge:
     build: .
     env_file: .env
-    restart: unless-stopped
+    restart: "no"
     network_mode: host
     volumes:
       # Face profiles — persists enrolled speakers across restarts/rebuilds
