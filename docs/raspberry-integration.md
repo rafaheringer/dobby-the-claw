@@ -146,6 +146,8 @@ After setup, generate a **Long-Lived Access Token** in the HA UI (Profile -> Sec
 
 The Reachy daemon requires direct access to USB, microphone, and camera hardware. Native installation is simpler and more reliable than Docker for this component.
 
+This repository also ships a small daemon wrapper at `scripts/reachy-mini-daemon-wrapper.py`. Keep using it on Raspberry Pi for now: current `reachy-mini` camera detection can miss the V4L2 camera on this Ubuntu setup unless the GLib loop runs briefly and `device.path` is normalized to `api.v4l2.path` before startup.
+
 ```bash
 # Step 1 — System dependencies
 sudo apt install git git-lfs libportaudio2
@@ -218,6 +220,12 @@ source ~/.bashrc
 
 ### Reachy Daemon as a systemd Service
 
+If you did not already clone this repository during the OpenClaw setup, do it now so the service can use the tracked wrapper:
+
+```bash
+git clone <repo-url> ~/dobby-the-claw
+```
+
 To ensure the daemon starts automatically on boot and restarts on failure:
 
 ```bash
@@ -239,7 +247,7 @@ WorkingDirectory=/home/dobby
 Environment="PATH=/home/dobby/reachy_mini_env/bin:/opt/gstreamer/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:/opt/gstreamer/lib/aarch64-linux-gnu/gstreamer-1.0"
 Environment="LD_LIBRARY_PATH=/opt/gstreamer/lib/aarch64-linux-gnu"
-ExecStart=/home/dobby/reachy_mini_env/bin/reachy-mini-daemon
+ExecStart=/home/dobby/reachy_mini_env/bin/python3 /home/dobby/dobby-the-claw/scripts/reachy-mini-daemon-wrapper.py
 Restart=always
 RestartSec=10
 
@@ -256,6 +264,9 @@ sudo systemctl start reachy-mini-daemon
 
 # Check status
 sudo systemctl status reachy-mini-daemon
+
+# View logs
+journalctl -u reachy-mini-daemon -f
 ```
 
 ---
