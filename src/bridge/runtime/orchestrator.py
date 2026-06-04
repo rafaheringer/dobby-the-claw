@@ -16,7 +16,7 @@ from bridge.state_machine import Event, StateMachine
 
 from bridge.runtime.adapters.notification_server import NotificationServer
 from bridge.runtime.adapters.reachy_actions import ReachyRobotActions
-from bridge.runtime.adapters.reachy_media import ReachySdkMediaIO
+from bridge.runtime.adapters.reachy_media import build_reachy_media_io
 from bridge.runtime.adapters.realtime_session import OpenAIRealtimeSessionFactory
 from bridge.runtime.adapters.tool_runtime import build_tool_runtime
 from bridge.runtime.audio_support import (
@@ -82,7 +82,7 @@ class RuntimeOrchestrator:
 
         if media_io is None:
             require_sdk_instance(mode_name, reachy_sdk_instance)
-            self.media_io = ReachySdkMediaIO(reachy_sdk_instance)
+            self.media_io = build_reachy_media_io(reachy_sdk_instance)
         else:
             self.media_io = media_io
 

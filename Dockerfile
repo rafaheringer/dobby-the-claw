@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     build-essential \
     pkg-config \
+    alsa-utils \
     libopenblas-dev \
     libgomp1 \
     libglib2.0-0 \
@@ -78,10 +79,15 @@ PY
 RUN python3 -c "import openwakeword; openwakeword.utils.download_models()"
 
 COPY src /app/src
+COPY scripts/bridge-entrypoint.sh /app/bridge-entrypoint.sh
+
+RUN chmod +x /app/bridge-entrypoint.sh
 
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 # Disable GUI debug window — no display in container
 ENV VISION_DEBUG_WINDOW=0
+ENV REACHY_DIRECT_ALSA_AUDIO=1
 
+ENTRYPOINT ["/app/bridge-entrypoint.sh"]
 CMD ["python", "-m", "bridge.main"]

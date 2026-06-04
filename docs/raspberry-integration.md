@@ -323,6 +323,10 @@ On Raspberry Pi, the bridge container uses two host integrations for local media
 - `/tmp` is mounted so the Reachy local IPC camera socket remains visible inside Docker.
 - `/dev/snd` is exposed so the SDK can use ALSA for microphone and speaker access.
 
+At container startup, the bridge now writes `/root/.asoundrc` automatically so ALSA defaults point to the Reachy USB audio card (`Audio`). This avoids Docker-local GStreamer device discovery issues where the SDK cannot enumerate the microphone/speaker directly but can still use the correct card through the default ALSA route.
+
+The bridge also defaults `REACHY_DIRECT_ALSA_AUDIO=1` on Linux. On Raspberry Pi this bypasses the SDK's local GStreamer audio path entirely for microphone capture and speaker playback, because the custom Reachy GStreamer runtime falls back to fake audio source/sink elements instead of real hardware backends.
+
 If you restart `reachy-mini-daemon`, wait until the service is fully `active` again before restarting the bridge container. The Docker bridge relies on the local IPC camera socket at `/tmp/reachymini_camera_socket`, and restarting the bridge while that socket is still absent can make container startup fail.
 
 The `REACHY_BRIDGE_URL` in `.env` should point to the local Reachy daemon WebSocket (typically `ws://localhost:<port>`).
