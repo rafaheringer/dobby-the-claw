@@ -46,72 +46,120 @@ Log out and back in, then verify: `docker ps`
 
 ## OpenClaw
 
-OpenClaw handles long-running or complex task delegation from the bridge. Run the containerized version built from source (required for the home-assistant skill and Docker CLI exec support).
+OpenClaw handles long-running or complex task delegation from the bridge. It runs natively on the Pi via Node.js — no Docker required.
 
-### Initial install
-
-```bash
-git clone https://github.com/openclaw/openclaw.git ~/openclaw
-cd ~/openclaw
-cp .env.example .env
-# Edit .env: set OPENCLAW_GATEWAY_TOKEN and any other required vars
-./scripts/docker/setup.sh
-```
-
-**Save the bearer token** shown during setup — it goes into `dobby-the-claw/.env` as `OPENCLAW_BEARER_TOKEN`.
-
-### Automated setup (skills + exec config)
-
-Clone the `dobby-the-claw` repository on the Pi and fill in the environment file:
+### Install Node.js 22 via nvm
 
 ```bash
-git clone <repo-url> ~/dobby-the-claw
-cd ~/dobby-the-claw
-cp .env.example .env
-nano .env  # Fill in OPENAI_API_KEY, OPENCLAW_*, HOME_ASSISTANT_URL, HOME_ASSISTANT_TOKEN, etc.
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash
+source ~/.bashrc
+nvm install 22
+corepack enable
 ```
 
-Then run the setup script from the project root **on the Pi**:
+### Install OpenClaw
 
 ```bash
-./scripts/setup-openclaw.sh
+npm install -g openclaw@latest
 ```
 
-This script handles everything in one shot:
-- Rebuilds the OpenClaw image with Docker CLI support (required for gateway exec host)
-- Installs the `home-assistant` skill from clawhub
-- Downloads `jq` into the persistent workspace
-- Creates the HA credentials config in the workspace
-- Applies exec settings (`tools.exec.host=gateway`, `security=full`, `ask=on-miss`)
-- Sets `exec-approvals.json` `askFallback=full` (auto-approve when no UI, e.g. WhatsApp)
-- Copies `docker-compose.openclaw.yml` → `~/openclaw/docker-compose.override.yml`
+Verify: `openclaw --version`
 
-> **Safe to re-run:** the script is idempotent. Skills and binaries already present are skipped; config files are merged (not replaced). OpenClaw workspace data and conversation history are never touched. If you've made manual edits to `docker-compose.override.yml` or `openclaw.json` beyond what the script manages, back them up first:
-> ```bash
-> cp ~/openclaw/docker-compose.override.yml ~/openclaw/docker-compose.override.yml.bak
-> cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.bak
-> ```
+### Configure environment
 
-> **Note:** The gateway takes ~2 minutes to become healthy after (re)start. Check with `curl http://localhost:18789/healthz`.
+Create the native environment file:
+
+```bash
+mkdir -p ~/.config/openclaw
+nano ~/.config/openclaw/native.env
+```
+
+Minimum required variables:
+
+```env
+OPENAI_API_KEY=sk-...
+OPENCLAW_GATEWAY_TOKEN=<your-token>        # generate with: openssl rand -hex 32
+OPENCLAW_GATEWAY_PORT=18789
+OPENCLAW_TZ=America/Sao_Paulo
+OPENCLAW_SANDBOX=0
+```
+
+**Save the gateway token** — it goes into `dobby-the-claw/.env` as `OPENCLAW_BEARER_TOKEN`.
+
+> OpenClaw stores its config and workspace at `~/.openclaw/`. This directory is created automatically on first run. To configure skills, exec settings, and model preferences, edit `~/.openclaw/openclaw.json` directly or use the web UI after connecting.
+
+### Run as a systemd service
+
+Create the service unit:
+
+```bash
+sudo nano /etc/systemd/system/openclaw.service
+```
+
+Paste:
+
+```ini
+[Unit]
+Description=OpenClaw Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dobby
+WorkingDirectory=/home/dobby/.openclaw
+EnvironmentFile=/home/dobby/.config/openclaw/native.env
+Environment="PATH=/home/dobby/.nvm/versions/node/v22.22.3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/dobby/.nvm/versions/node/v22.22.3/bin/openclaw gateway
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openclaw
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> Update the Node.js version path if you install a different version: `nvm which 22` shows the exact binary path.
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable openclaw
+sudo systemctl start openclaw
+
+# Verify
+curl http://localhost:18789/healthz   # should return {"ok":true,"status":"live"}
+journalctl -u openclaw -f            # follow logs
+```
+
+### Update OpenClaw
+
+```bash
+npm install -g openclaw@latest
+sudo systemctl restart openclaw
+```
 
 ### Web UI access
 
-Forward the port via SSH tunnel:
+The web UI requires a secure browser context (HTTPS or localhost) to generate the device identity key used for authentication. Use the SSH tunnel so the browser sees `localhost`:
 
 ```bash
-ssh -fN -L 18789:127.0.0.1:18789 dobby@raspberrypi.local
-# Then open: http://localhost:18789
+# From your development machine (tunnel already included in ./scripts/tunnel.sh)
+ssh -N -L 18789:127.0.0.1:18789 dobby@192.168.68.56
 ```
 
-### Key exec configuration (applied by setup script)
+Then open: `http://127.0.0.1:18789`
 
-| Setting | Value | Why |
-|---|---|---|
-| `tools.exec.host` | `gateway` | Runs commands inside the gateway container, which has LAN access |
-| `tools.exec.security` | `full` | No allowlist check — auto-approves all commands |
-| `tools.exec.ask` | `on-miss` | Shows approval prompt in UI when triggered from web |
-| `exec-approvals askFallback` | `full` | Auto-approves when no UI is available (e.g. WhatsApp) |
-| `agents.defaults.sandbox.mode` | `off` | Sandbox uses gateway exec, not an isolated container |
+**First-time connection:** open in an **incognito/private window** so the browser generates a fresh device identity. Enter the gateway token from `~/.openclaw/openclaw.json` → `gateway.auth.token` in the Gateway Token field, or append it as a URL fragment:
+
+```
+http://127.0.0.1:18789/#token=<your-gateway-token>
+```
+
+After the first successful connection, the device identity is stored in the browser's IndexedDB and subsequent connections in regular windows work without the fragment.
 
 ---
 
@@ -220,7 +268,7 @@ source ~/.bashrc
 
 ### Reachy Daemon as a systemd Service
 
-If you did not already clone this repository during the OpenClaw setup, do it now so the service can use the tracked wrapper:
+Clone this repository on the Pi so the service can use the tracked wrapper:
 
 ```bash
 git clone <repo-url> ~/dobby-the-claw
@@ -299,7 +347,7 @@ The unit waits for the Reachy USB audio card and then drives both playback mixer
 
 ## Deploying the Bridge
 
-If you followed the OpenClaw setup above, the repository is already cloned at `~/dobby-the-claw` and `.env` is filled in. Otherwise, do it now:
+If you haven't cloned the repository yet:
 
 ```bash
 git clone <repo-url> ~/dobby-the-claw
