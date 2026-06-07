@@ -26,7 +26,7 @@ class OpenClawGatewayConfig:
     bearer_token: str
     timeout_s: float
     default_language: str
-    delegate_model: str = "anthropic/claude-sonnet-4-6"
+    delegate_model: str = ""
 
 
 class OpenClawGatewayClient:
@@ -80,15 +80,18 @@ class OpenClawGatewayClient:
             await self._perform_connect_handshake(connection)
 
             start_ms = int(time.time() * 1000)
+            send_params: dict[str, Any] = {
+                "sessionKey": session_key,
+                "idempotencyKey": f"bridge-{uuid.uuid4()}",
+                "message": prompt,
+            }
+            # Empty delegate_model means "use the OpenClaw agent's default model".
+            if self._config.delegate_model:
+                send_params["model"] = self._config.delegate_model
             send_payload = await self._rpc_request(
                 connection,
                 method="chat.send",
-                params={
-                    "sessionKey": session_key,
-                    "idempotencyKey": f"bridge-{uuid.uuid4()}",
-                    "message": prompt,
-                    "model": self._config.delegate_model,
-                },
+                params=send_params,
                 expect_final=True,
             )
             if not isinstance(send_payload, dict):

@@ -159,7 +159,7 @@ class BridgeConfig:
             openclaw_ws_url=os.getenv("OPENCLAW_WS_URL", "ws://127.0.0.1:18789").strip(),
             openclaw_bearer_token=os.getenv("OPENCLAW_BEARER_TOKEN", "").strip(),
             openclaw_timeout_s=float(os.getenv("OPENCLAW_TIMEOUT_S", "45")),
-            openclaw_delegate_model=os.getenv("OPENCLAW_DELEGATE_MODEL", "anthropic/claude-sonnet-4-6").strip(),
+            openclaw_delegate_model=os.getenv("OPENCLAW_DELEGATE_MODEL", "").strip(),
             home_assistant_enabled=_env_flag("HOME_ASSISTANT_ENABLED", False),
             home_assistant_url=home_assistant_url,
             home_assistant_token=home_assistant_token,

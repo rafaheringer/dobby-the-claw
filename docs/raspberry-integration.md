@@ -65,6 +65,16 @@ npm install -g openclaw@latest
 
 Verify: `openclaw --version`
 
+### Install channel plugins
+
+The WhatsApp channel is distributed as a separate plugin (not bundled in the npm package):
+
+```bash
+openclaw plugins install @openclaw/whatsapp
+```
+
+Restart the gateway after installing plugins.
+
 ### Configure environment
 
 Create the native environment file:
