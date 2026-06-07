@@ -355,7 +355,13 @@ The unit waits for the Reachy USB audio card and then drives both playback mixer
 
 ---
 
-## Deploying the Bridge
+## Deploying the Bridge (native)
+
+On the Raspberry Pi the bridge runs **natively**, not in Docker. Docker adds CPU/memory
+overhead and fragile device passthrough (`/dev/snd`, the custom GStreamer runtime) that the
+throttled Pi can't spare. Running natively in the same virtualenv as the Reachy daemon is
+lighter and simpler. (Docker remains available for development hosts — see the end of this
+section.)
 
 If you haven't cloned the repository yet:
 
@@ -363,28 +369,99 @@ If you haven't cloned the repository yet:
 git clone <repo-url> ~/dobby-the-claw
 cd ~/dobby-the-claw
 cp .env.example .env
-nano .env  # Fill in OPENAI_API_KEY, REACHY_BRIDGE_URL, OPENCLAW_*, HA_* etc.
+nano .env  # Fill in OPENAI_API_KEY, REACHY_BRIDGE_URL=sdk, OPENCLAW_*, HA_* etc.
 ```
 
-On Raspberry Pi, set `REACHY_OUTPUT_VOLUME=100` in `.env` so the bridge re-applies max output volume whenever it starts.
+### Install bridge dependencies into the Reachy virtualenv
 
-Run via Docker:
+The bridge reuses the daemon's virtualenv (`~/reachy_mini_env`, Python 3.12), which already
+ships most dependencies (numpy, onnxruntime, openai, opencv, reachy_mini, websockets). Add the
+remaining lightweight ones:
 
 ```bash
-docker compose up --build -d
+~/reachy_mini_env/bin/pip install croniter reachy_mini_dances_library reachy_mini_toolbox
 
-# View logs
-docker compose logs -f
+# openWakeWord 0.6.x has the API the bridge expects, but its tflite-runtime dependency has no
+# wheel for py3.12/aarch64. The ONNX inference path doesn't use tflite, so install without deps:
+~/reachy_mini_env/bin/pip install --no-deps 'openwakeword>=0.6.0,<0.7'
+~/reachy_mini_env/bin/python3 -c 'import openwakeword; openwakeword.utils.download_models()'
 ```
 
-On Raspberry Pi, the bridge container uses two host integrations for local media:
-- `/tmp` is mounted so the Reachy local IPC camera socket remains visible inside Docker.
-- `/dev/snd` is exposed so the SDK can use ALSA for microphone and speaker access.
+`insightface`/`mediapipe` are intentionally skipped — they're only needed for vision features,
+which stay off on the Pi (`CAMERA_TOOL_ENABLED=0`, `SPEAKER_ID_ENABLED=0`, `HEAD_TRACKING_ENABLED=0`).
 
-At container startup, the bridge now writes `/root/.asoundrc` automatically so ALSA defaults point to the Reachy USB audio card (`Audio`). This avoids Docker-local GStreamer device discovery issues where the SDK cannot enumerate the microphone/speaker directly but can still use the correct card through the default ALSA route.
+### Audio device
 
-The bridge also defaults `REACHY_DIRECT_ALSA_AUDIO=1` on Linux. On Raspberry Pi this bypasses the SDK's local GStreamer audio path entirely for microphone capture and speaker playback, because the custom Reachy GStreamer runtime falls back to fake audio source/sink elements instead of real hardware backends.
+The bridge captures and plays audio directly via ALSA (`arecord`/`aplay`,
+`REACHY_DIRECT_ALSA_AUDIO=1`). The system ALSA `default` points at the onboard `Headphones`
+card, which has no capture, so point the bridge at the Reachy USB card explicitly in `.env`:
 
-If you restart `reachy-mini-daemon`, wait until the service is fully `active` again before restarting the bridge container. The Docker bridge relies on the local IPC camera socket at `/tmp/reachymini_camera_socket`, and restarting the bridge while that socket is still absent can make container startup fail.
+```bash
+REACHY_ALSA_DEVICE=plughw:CARD=Audio
+REACHY_OUTPUT_VOLUME=100
+```
 
-The `REACHY_BRIDGE_URL` in `.env` should point to the local Reachy daemon WebSocket (typically `ws://localhost:<port>`).
+`REACHY_ALSA_DEVICE` is read by `build_reachy_media_io()` and defaults to `default` (which is
+what the Docker entrypoint configures via `/root/.asoundrc`); set it explicitly for the native
+deployment.
+
+### Free up the CPU: disable the daemon camera
+
+By default the Reachy daemon continuously encodes camera video over WebRTC (~2 CPU cores) even
+when nothing consumes it. With vision off, disable it so the bridge has CPU headroom — see
+[Reachy Daemon as a systemd Service](#reachy-daemon-as-a-systemd-service) for the
+`REACHY_MINI_DISABLE_VIDEO=1` gate. The bridge also skips its own `CameraWorker` automatically
+when all vision features (camera tool, head tracking, speaker id, finger tracking) are off.
+
+### Run as a systemd service
+
+```bash
+sudo nano /etc/systemd/system/dobby-bridge.service
+```
+
+```ini
+[Unit]
+Description=Dobby Bridge (native)
+After=network-online.target reachy-mini-daemon.service
+Wants=network-online.target
+Requires=reachy-mini-daemon.service
+
+[Service]
+Type=simple
+User=dobby
+WorkingDirectory=/home/dobby/dobby-the-claw
+EnvironmentFile=/home/dobby/dobby-the-claw/.env
+Environment=PYTHONPATH=/home/dobby/dobby-the-claw/src
+Environment=PATH=/opt/gstreamer/bin:/home/dobby/reachy_mini_env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:/opt/gstreamer/lib/aarch64-linux-gnu/gstreamer-1.0
+Environment=LD_LIBRARY_PATH=/opt/gstreamer/lib/aarch64-linux-gnu
+ExecStart=/home/dobby/reachy_mini_env/bin/python3 -m bridge.main --mode realtime --no-headtracking
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now dobby-bridge
+journalctl -u dobby-bridge -f
+```
+
+Notes:
+- `WorkingDirectory` is the project root (not `src/`) so the relative `WAKEWORD_MODEL_PATH`
+  (`models/wakeword/dobby.onnx`) resolves.
+- The `PATH`/`GST_PLUGIN_PATH`/`LD_LIBRARY_PATH` entries mirror the daemon's so the SDK can load
+  the custom Reachy GStreamer `webrtcsrc` element (otherwise SDK init fails with
+  "Failed to create webrtcsrc element").
+- `REACHY_BRIDGE_URL=sdk` makes the bridge talk to the local daemon directly.
+- The unit's `After=`/`Requires=reachy-mini-daemon.service` ensures the daemon is up first.
+
+### Docker (development only)
+
+The repo still ships a `Dockerfile` and `docker-compose*.yml` for development hosts; they are no
+longer the recommended path on the Pi. If you do use Compose, note that the base
+`docker-compose.yml` and the `docker-compose.rpi.yml` override must not both declare `group_add`
+(Compose concatenates list keys, producing a duplicate `audio` entry that fails validation). The
+rpi override is therefore kept minimal (only `platform: linux/arm64`).

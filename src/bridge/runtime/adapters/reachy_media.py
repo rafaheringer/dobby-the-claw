@@ -197,6 +197,7 @@ def build_reachy_media_io(reachy_sdk_instance: Any) -> MediaIOPort:
         and shutil.which("arecord")
         and shutil.which("aplay")
     ):
-        logger.info("Using direct ALSA media adapter for bridge audio")
-        return ReachyDirectAlsaMediaIO(device_name="default")
+        device = os.getenv("REACHY_ALSA_DEVICE", "default").strip() or "default"
+        logger.info("Using direct ALSA media adapter for bridge audio (device=%s)", device)
+        return ReachyDirectAlsaMediaIO(device_name=device)
     return ReachySdkMediaIO(reachy_sdk_instance)

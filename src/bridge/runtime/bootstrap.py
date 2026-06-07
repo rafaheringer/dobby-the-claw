@@ -69,21 +69,35 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
             )
             face_recognizer = None
 
+    needs_video = (
+        config.vision_debug_window
+        or config.head_tracking_enabled
+        or config.camera_tool_enabled
+        or config.speaker_id_enabled
+        or config.antenna_finger_tracking_enabled
+    )
+
     if is_sdk_runtime:
         try:
             reachy_sdk_instance = reachy.get_sdk_instance()
-            head_tracker = _build_head_tracker()
-            camera_worker = CameraWorker(
-                reachy_sdk_instance,
-                head_tracker=head_tracker,
-                debug_visual_window=config.vision_debug_window,
-                debug_log_interval_s=config.vision_debug_log_interval_s,
-                tracking_max_width=config.vision_tracking_max_width,
-                tracking_fps=config.vision_tracking_fps,
-                antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,
-                antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
-                face_recognizer=face_recognizer,
-            )
+            if needs_video:
+                head_tracker = _build_head_tracker()
+                camera_worker = CameraWorker(
+                    reachy_sdk_instance,
+                    head_tracker=head_tracker,
+                    debug_visual_window=config.vision_debug_window,
+                    debug_log_interval_s=config.vision_debug_log_interval_s,
+                    tracking_max_width=config.vision_tracking_max_width,
+                    tracking_fps=config.vision_tracking_fps,
+                    antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,
+                    antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
+                    face_recognizer=face_recognizer,
+                )
+            else:
+                logging.info(
+                    "Vision features disabled (camera tool, head tracking, speaker id, "
+                    "finger tracking all off); skipping CameraWorker to save CPU"
+                )
             motion_manager = MotionManager(
                 reachy_sdk_instance,
                 camera_worker=camera_worker,

@@ -33,16 +33,19 @@ python -m bridge.main --mode tui
 
 Run from the `src/` directory, or set `PYTHONPATH=src`.
 
-### Docker
+### Docker (development hosts)
 
 ```bash
 cp .env.example .env
 # Edit .env with your credentials
 docker compose up --build
-
-# Raspberry Pi
-docker compose -f docker-compose.yml -f docker-compose.rpi.yml up --build
 ```
+
+> On the **Raspberry Pi the bridge runs natively** (systemd `dobby-bridge.service` in the
+> `reachy_mini_env` virtualenv), not in Docker — Docker's CPU/memory overhead and device
+> passthrough are too costly on the throttled Pi. See [`docs/raspberry-integration.md`](docs/raspberry-integration.md#deploying-the-bridge-native).
+> The `docker-compose.rpi.yml` override is kept minimal; the base + override must not both
+> declare `group_add` (Compose concatenates the list, failing validation).
 
 ### SSH Tunnels (local development)
 

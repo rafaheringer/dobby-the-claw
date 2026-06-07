@@ -1,11 +1,6 @@
 services:
   bridge:
+    # Raspberry Pi (ARM64) override. All device/group_add/volume/GStreamer settings
+    # already come from the base docker-compose.yml; duplicating group_add/devices here
+    # breaks Compose validation ("items 0 and 1 are equal"), so keep this file minimal.
     platform: linux/arm64
-    devices:
-      - /dev/snd:/dev/snd
-    group_add:
-      - audio
-    volumes:
-      - /opt/gst-plugins-rs:/opt/gst-plugins-rs:ro
-    environment:
-      - GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu
