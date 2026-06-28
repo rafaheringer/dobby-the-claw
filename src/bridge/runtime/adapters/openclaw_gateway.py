@@ -12,7 +12,7 @@ from typing import Any
 
 import websockets
 
-OPENCLAW_PROTOCOL_VERSION = 3
+OPENCLAW_PROTOCOL_VERSION = 4
 OPENCLAW_CLIENT_ID = "gateway-client"
 OPENCLAW_CLIENT_MODE = "backend"
 OPENCLAW_ROLE = "operator"

@@ -98,6 +98,15 @@ OPENCLAW_SANDBOX=0
 
 > OpenClaw stores its config and workspace at `~/.openclaw/`. This directory is created automatically on first run. To configure skills, exec settings, and model preferences, edit `~/.openclaw/openclaw.json` directly or use the web UI after connecting.
 
+> **Delegation model & auth.** The model OpenClaw uses is set in `~/.openclaw/openclaw.json`
+> (`agents.defaults.model.primary`, `agents.defaults.heartbeat.model`, and
+> `channels.modelByChannel`). The bridge inherits it by leaving `OPENCLAW_DELEGATE_MODEL` **empty**
+> in `.env` — the current gateway protocol rejects a per-call `model` on `chat.send`. Two gotchas
+> when the gateway is upgraded: (1) if you regenerate the gateway token, update it in **both**
+> `openclaw.json` (`gateway.auth.token`) and `.env` (`OPENCLAW_BEARER_TOKEN`) or the bridge gets
+> `AUTH_TOKEN_MISMATCH`; (2) the client protocol version is `OPENCLAW_PROTOCOL_VERSION` in
+> `src/bridge/runtime/adapters/openclaw_gateway.py` and must match the installed gateway (currently `4`).
+
 ### Run as a systemd service
 
 Create the service unit:
@@ -372,23 +381,44 @@ cp .env.example .env
 nano .env  # Fill in OPENAI_API_KEY, REACHY_BRIDGE_URL=sdk, OPENCLAW_*, HA_* etc.
 ```
 
-### Install bridge dependencies into the Reachy virtualenv
+### Create a dedicated virtualenv and install dependencies
 
-The bridge reuses the daemon's virtualenv (`~/reachy_mini_env`, Python 3.12), which already
-ships most dependencies (numpy, onnxruntime, openai, opencv, reachy_mini, websockets). Add the
-remaining lightweight ones:
+The bridge runs in its **own** virtualenv (`~/dobby-the-claw/.venv`, Python 3.12), isolated from
+the daemon's `~/reachy_mini_env`. Isolation matters because `mediapipe` (head/finger tracking)
+forces a `protobuf` downgrade that would otherwise break the daemon, which shares the same env.
 
 ```bash
-~/reachy_mini_env/bin/pip install croniter reachy_mini_dances_library reachy_mini_toolbox
+# Create the venv from the same Python 3.12 the daemon uses
+~/reachy_mini_env/bin/python3.12 -m venv ~/dobby-the-claw/.venv
+~/dobby-the-claw/.venv/bin/pip install --upgrade pip
 
-# openWakeWord 0.6.x has the API the bridge expects, but its tflite-runtime dependency has no
-# wheel for py3.12/aarch64. The ONNX inference path doesn't use tflite, so install without deps:
-~/reachy_mini_env/bin/pip install --no-deps 'openwakeword>=0.6.0,<0.7'
-~/reachy_mini_env/bin/python3 -c 'import openwakeword; openwakeword.utils.download_models()'
+# Core stack — wheels exist for py3.12/aarch64 (including mediapipe and reachy_mini_rust_kinematics)
+~/dobby-the-claw/.venv/bin/pip install reachy-mini reachy_mini_dances_library reachy_mini_toolbox \
+    openai 'mediapipe==0.10.14' websockets textual onnxruntime opencv-contrib-python \
+    croniter requests scikit-learn
+
+# openWakeWord 0.6.x has the API the bridge expects, but its tflite-runtime dep has no wheel for
+# py3.12/aarch64. The ONNX path doesn't use tflite, so install without deps:
+~/dobby-the-claw/.venv/bin/pip install --no-deps 'openwakeword>=0.6.0,<0.7'
+~/dobby-the-claw/.venv/bin/python3 -c 'import openwakeword; openwakeword.utils.download_models()'
 ```
 
-`insightface`/`mediapipe` are intentionally skipped — they're only needed for vision features,
-which stay off on the Pi (`CAMERA_TOOL_ENABLED=0`, `SPEAKER_ID_ENABLED=0`, `HEAD_TRACKING_ENABLED=0`).
+Notes:
+- `scikit-learn` is required because `openwakeword`'s package `__init__` imports it even on the ONNX path.
+- `insightface` is only needed for speaker id (`SPEAKER_ID_ENABLED=1`); skip it otherwise.
+
+### Vision tracking vs CPU
+
+Head tracking (`HEAD_TRACKING_ENABLED=1`) and finger tracking (`ANTENNA_FINGER_TRACKING_ENABLED=1`)
+use the daemon's camera video plus MediaPipe inference — together ~2–3 cores. This only fits when
+the Pi runs at full **1.8 GHz**, so the power supply must be adequate: a weak supply/cable throttles
+the CPU to 600 MHz and tracking saturates it (see the under-voltage note below). A genuine RPi-class
+5.1V/3A supply with a good USB-C cable is required.
+
+To run **lean without tracking**, set `HEAD_TRACKING_ENABLED=0`, `ANTENNA_FINGER_TRACKING_ENABLED=0`,
+`CAMERA_TOOL_ENABLED=0` (the bridge then skips its `CameraWorker` automatically, in `bootstrap.py`)
+and disable the daemon's camera encode with `REACHY_MINI_DISABLE_VIDEO=1` (see the daemon service
+section) — that frees ~2 cores.
 
 ### Audio device
 
@@ -404,14 +434,6 @@ REACHY_OUTPUT_VOLUME=100
 `REACHY_ALSA_DEVICE` is read by `build_reachy_media_io()` and defaults to `default` (which is
 what the Docker entrypoint configures via `/root/.asoundrc`); set it explicitly for the native
 deployment.
-
-### Free up the CPU: disable the daemon camera
-
-By default the Reachy daemon continuously encodes camera video over WebRTC (~2 CPU cores) even
-when nothing consumes it. With vision off, disable it so the bridge has CPU headroom — see
-[Reachy Daemon as a systemd Service](#reachy-daemon-as-a-systemd-service) for the
-`REACHY_MINI_DISABLE_VIDEO=1` gate. The bridge also skips its own `CameraWorker` automatically
-when all vision features (camera tool, head tracking, speaker id, finger tracking) are off.
 
 ### Run as a systemd service
 
@@ -432,10 +454,10 @@ User=dobby
 WorkingDirectory=/home/dobby/dobby-the-claw
 EnvironmentFile=/home/dobby/dobby-the-claw/.env
 Environment=PYTHONPATH=/home/dobby/dobby-the-claw/src
-Environment=PATH=/opt/gstreamer/bin:/home/dobby/reachy_mini_env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/opt/gstreamer/bin:/home/dobby/dobby-the-claw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:/opt/gstreamer/lib/aarch64-linux-gnu/gstreamer-1.0
 Environment=LD_LIBRARY_PATH=/opt/gstreamer/lib/aarch64-linux-gnu
-ExecStart=/home/dobby/reachy_mini_env/bin/python3 -m bridge.main --mode realtime --no-headtracking
+ExecStart=/home/dobby/dobby-the-claw/.venv/bin/python3 -m bridge.main --mode realtime
 Restart=on-failure
 RestartSec=10
 
