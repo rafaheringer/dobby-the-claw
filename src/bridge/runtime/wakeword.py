@@ -7,8 +7,8 @@ wakeword models are not configured yet.
 
 from __future__ import annotations
 
-import logging
 import importlib
+import logging
 import time
 
 import numpy as np
@@ -16,6 +16,15 @@ import numpy as np
 from bridge.runtime.common import resample_audio_chunk
 
 logger = logging.getLogger(__name__)
+
+
+def _to_mono(sample: np.ndarray) -> np.ndarray:
+    """Downmix (frames, channels) or (channels, frames) audio to a 1-D float32 array."""
+    arr = np.asarray(sample, dtype=np.float32)
+    if arr.ndim == 2:
+        axis = 0 if (arr.shape[0] <= 8 and arr.shape[0] <= arr.shape[1]) else 1
+        arr = arr.mean(axis=axis)
+    return arr.reshape(-1)
 
 
 class OfflineWakewordDetector:
@@ -120,7 +129,7 @@ class OfflineWakewordDetector:
         if sample is None:
             return False
 
-        mono = np.asarray(sample, dtype=np.float32).reshape(-1)
+        mono = _to_mono(sample)
         if mono.size == 0:
             return False
 
@@ -152,7 +161,7 @@ class OfflineWakewordDetector:
         if self._calibration_deadline_ts is None or self._calibration_finalized:
             return
 
-        mono = np.asarray(sample, dtype=np.float32).reshape(-1)
+        mono = _to_mono(sample)
         if mono.size == 0:
             return
 
@@ -243,6 +252,8 @@ class OfflineWakewordDetector:
                         n = str(name).lower()
                         if n not in candidate_names:
                             continue
+                        if float(score) >= 0.05:
+                            logger.debug("Offline wakeword score model=%s score=%.3f", name, float(score))
                         if float(score) >= self.threshold:
                             self._last_trigger_ts = now
                             self._speech_hits = 0
@@ -255,7 +266,7 @@ class OfflineWakewordDetector:
             except Exception as exc:
                 logger.debug("Offline wakeword model prediction failed: %s", exc)
 
-        if self.fallback_on_speech:
+        if self.fallback_on_speech and not self._openwakeword_available:
             f = frame.astype(np.float32) / 32767.0
             rms = float(np.sqrt(np.mean(f * f))) if f.size > 0 else 0.0
             if rms >= self.speech_rms_threshold:
