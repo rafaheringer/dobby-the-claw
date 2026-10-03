@@ -2,5 +2,6 @@
 - Análise realtime e constante de imagens para detectar objetos e principalmente, gatos!
 - Permitir remotamente acesso à câmera, com movimento, para virar uma câmera de segurança se estiver em modo vigilha
 - Configurar para só conversar quando for chamado e saber que é com ele ou que ele quer se meter num assunto
-- Modos: sempre acordado, normal e vigilante.
+- Modos: normal e vigilante.
 - Sempre que detectar uma nova pessoa, dar oi! Seja via vídeo ou áudio.
+- Sempre que ver a pessoa depois de muito tempo (detectou som, tirou foto e viu que era conhecido), perguntar se tá tudo bem, ler a agenda (via open claw), ver se tem que avisar algo a ela.
