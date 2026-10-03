@@ -20,26 +20,37 @@ except ImportError:
 class SpeakerMemory:
     """Persist and retrieve per-speaker facts across sessions using mem0."""
 
-    def __init__(self, storage_dir: str, extraction_model: str, api_key: str) -> None:
+    def __init__(
+        self, storage_dir: str, extraction_model: str, api_key: str, provider: str = "openai"
+    ) -> None:
         self._mem: Optional[object] = None
         if not _MEM0_AVAILABLE:
             logger.warning("mem0ai not installed; speaker memory disabled. pip install mem0ai")
             return
         try:
             os.makedirs(storage_dir, exist_ok=True)
-            config = {
-                "llm": {
-                    "provider": "openai",
-                    "config": {"model": extraction_model, "api_key": api_key},
-                },
-                "embedder": {
+            if provider == "gemini":
+                llm_cfg = {"provider": "gemini", "config": {"model": extraction_model, "api_key": api_key}}
+                embedder_cfg = {
+                    "provider": "gemini",
+                    "config": {"model": "gemini-embedding-001", "api_key": api_key, "embedding_dims": 768},
+                }
+                collection, dims = "dobby_speaker_memories_gemini", 768
+            else:
+                llm_cfg = {"provider": "openai", "config": {"model": extraction_model, "api_key": api_key}}
+                embedder_cfg = {
                     "provider": "openai",
                     "config": {"model": "text-embedding-3-small", "api_key": api_key},
-                },
+                }
+                collection, dims = "dobby_speaker_memories", 1536
+            config = {
+                "llm": llm_cfg,
+                "embedder": embedder_cfg,
                 "vector_store": {
                     "provider": "qdrant",
                     "config": {
-                        "collection_name": "dobby_speaker_memories",
+                        "collection_name": collection,
+                        "embedding_model_dims": dims,
                         "path": storage_dir,
                         "on_disk": True,
                     },

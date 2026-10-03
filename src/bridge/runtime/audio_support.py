@@ -44,10 +44,15 @@ def require_sdk_instance(mode_name: str, reachy_sdk_instance: Any) -> None:
         raise RuntimeError(f"{mode_name} mode requires REACHY_BRIDGE_URL=sdk")
 
 
+def resolve_gemini_api_key() -> str:
+    """Resolve the Gemini key, preferring GEMINI_API_KEY over GOOGLE_API_KEY."""
+    return (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+
+
 def resolve_llm_api_key(config: BridgeConfig) -> str:
-    """Resolve configured LLM API key from the expected environment variable."""
+    """Resolve the OpenAI API key; it is only mandatory when OpenAI is the conversation provider."""
     api_key = os.getenv(config.llm_api_key_env, "").strip()
-    if not api_key:
+    if not api_key and config.conversation_provider != "gemini":
         raise RuntimeError(f"Missing API key in env var {config.llm_api_key_env}")
     return api_key
 

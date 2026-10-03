@@ -9,7 +9,9 @@ This document describes, in plain language, everything Dobby can do today. It is
 - **Call it by name.** Just say "Dobby" (or "Reachy") and it starts listening. No button is needed, and the robot notices its name without an internet connection.
 - **Natural conversation, in Brazilian Portuguese.** It answers in short sentences, and you can interrupt it mid-sentence.
 - **A personality of its own.** Sarcastic and irreverent, but helpful. When it can't do something on its own, it tries to get help instead of simply refusing.
-- **Automatic rest.** After a while without conversation it "goes to sleep" by itself and wakes up when you call it. You can also ask it to go to sleep.
+- **Choice of voice engine.** Dobby can run on OpenAI Realtime or on Google Gemini Live (a setting in the configuration file); the rest of the features work the same on both.
+- **Automatic rest.** After a while without conversation it "goes to sleep" by itself and wakes up when you call it. You can also ask it to go to sleep; it finishes saying goodbye before dozing off.
+- **Sleeps soundly.** While asleep, only its name wakes it up; noises and other conversations around it don't.
 
 ## Physical presence
 

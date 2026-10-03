@@ -17,13 +17,14 @@ from bridge.state_machine import Event, StateMachine
 from bridge.runtime.adapters.notification_server import NotificationServer
 from bridge.runtime.adapters.reachy_actions import ReachyRobotActions
 from bridge.runtime.adapters.reachy_media import build_reachy_media_io
-from bridge.runtime.adapters.realtime_session import OpenAIRealtimeSessionFactory
+from bridge.runtime.adapters.realtime_session import build_conversation_factory
 from bridge.runtime.adapters.tool_runtime import build_tool_runtime
 from bridge.runtime.audio_support import (
     build_wakeword_detector,
     maybe_log_health,
     process_audio_queue,
     require_sdk_instance,
+    resolve_gemini_api_key,
     resolve_llm_api_key,
 )
 from homeassistant.home_assistant_client import HomeAssistantWsClient
@@ -77,7 +78,7 @@ class RuntimeOrchestrator:
         self.interactive_text = interactive_text
         self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
         self.wake_on_startup = wake_on_startup
-        self.conversation_factory = conversation_factory or OpenAIRealtimeSessionFactory(config)
+        self.conversation_factory = conversation_factory or build_conversation_factory(config)
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
 
         if media_io is None:
@@ -92,13 +93,18 @@ class RuntimeOrchestrator:
         self._session_messages: list[dict] = []
 
         self._speaker_memory = None
-        if config.speaker_memory_enabled:
+        memory_provider = "gemini" if config.conversation_provider == "gemini" else "openai"
+        memory_key = resolve_gemini_api_key() if memory_provider == "gemini" else self.api_key
+        if config.speaker_memory_enabled and not memory_key:
+            logging.warning("Speaker memory has no API key for %s; disabled for this run", memory_provider)
+        elif config.speaker_memory_enabled:
             import os as _os
             from bridge.speaker_memory import SpeakerMemory
             self._speaker_memory = SpeakerMemory(
                 storage_dir=_os.path.expanduser(config.speaker_memory_dir),
                 extraction_model=config.speaker_memory_model,
-                api_key=self.api_key,
+                api_key=memory_key,
+                provider=memory_provider,
             )
 
         self._notification_queue: "Queue[str]" = Queue()
@@ -127,9 +133,9 @@ class RuntimeOrchestrator:
         self.recording_started = False
         self.sleeping = False
         self.sleep_after_response = threading.Event()
-        self._sleep_drain_at: float = 0.0  # monotonic timestamp; >0 means sleep is pending
-        self._play_start_ts: float = 0.0   # when start_playing() was called for current response
-        self._queued_samples: int = 0      # samples queued since last speech start (at realtime_output_rate)
+        self._sleep_requested_ts: float = 0.0
+        self._last_audio_chunk_ts: float = 0.0
+        self._playback_end_ts: float = 0.0  # estimated time when queued assistant audio finishes
         self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
         self.realtime_recovery_requested = False
@@ -222,8 +228,6 @@ class RuntimeOrchestrator:
                 if sample is not None and self.realtime is not None and self.active_mode_uses_mic_recording:
                     self.realtime.feed_audio(self.input_sample_rate, sample)
 
-                previous_responses_streamed = self.responses_streamed
-                prev_playback = self.playback_started
                 self.playback_started, self.audio_chunks_total, self.responses_streamed = process_audio_queue(
                     audio_queue=self.audio_queue,
                     media_io=self.media_io,
@@ -236,25 +240,15 @@ class RuntimeOrchestrator:
                     state_machine=self.state_machine,
                     motion_manager=self.motion_manager,
                 )
-                if self.playback_started and not prev_playback:
-                    self._play_start_ts = time.monotonic()
-
-                if (
-                    self.sleep_after_response.is_set()
-                    and self.responses_streamed > previous_responses_streamed
-                ):
-                    self.sleep_after_response.clear()
-                    # Calculate exact drain time from queued samples + 200 ms GStreamer buffer allowance
-                    if self._play_start_ts > 0.0 and self._queued_samples > 0:
-                        play_duration = self._queued_samples / self.realtime_output_rate
-                        self._sleep_drain_at = self._play_start_ts + play_duration + 0.2
-                    else:
-                        self._sleep_drain_at = time.monotonic() + 1.0
-
-                if self._sleep_drain_at > 0.0 and time.monotonic() >= self._sleep_drain_at:
-                    self._sleep_drain_at = 0.0
-                    self._enter_sleep_mode()
-                    continue
+                if self.sleep_after_response.is_set():
+                    # The model may speak its farewell after the tool call, so wait for a quiet gap
+                    # after the last audio chunk and for the queued audio to finish playing.
+                    now = time.monotonic()
+                    quiet_since = max(self._sleep_requested_ts, self._last_audio_chunk_ts)
+                    if now - quiet_since >= 2.5 and now >= self._playback_end_ts + 0.8:
+                        self.sleep_after_response.clear()
+                        self._enter_sleep_mode()
+                        continue
 
                 if self.interactive_text:
                     should_exit = self._drain_text_queue()
@@ -322,8 +316,7 @@ class RuntimeOrchestrator:
         """Handle speech-start callback from conversation session."""
         logging.debug("[%dms] Callback speech_start", self._elapsed_ms())
         self._mark_user_activity()
-        self._queued_samples = 0
-        self._play_start_ts = 0.0
+        self._playback_end_ts = 0.0
         self.audio_queue.put(("force_stop", None))
         try:
             apply_event(self.state_machine, Event.WAKE_WORD, self.motion_manager)
@@ -387,7 +380,10 @@ class RuntimeOrchestrator:
     def _on_assistant_audio_chunk(self, chunk) -> None:
         """Queue one streamed assistant audio chunk for playback."""
         try:
-            self._queued_samples += int(getattr(chunk, "size", len(chunk)))
+            samples = int(getattr(chunk, "size", len(chunk)))
+            now = time.monotonic()
+            self._last_audio_chunk_ts = now
+            self._playback_end_ts = max(now, self._playback_end_ts) + samples / self.realtime_output_rate
         except Exception:
             pass
         self.audio_queue.put(("chunk", chunk))
@@ -566,7 +562,7 @@ class RuntimeOrchestrator:
         if not self.realtime.wait_until_ready(timeout_s=35.0):
             self.realtime.stop()
             self.realtime = None
-            raise RuntimeError("Failed to start OpenAI Realtime session")
+            raise RuntimeError("Failed to start realtime conversation session")
 
         logging.info("[%dms] Realtime session connected", self._elapsed_ms())
 
@@ -648,11 +644,12 @@ class RuntimeOrchestrator:
         if self.sleep_after_response.is_set():
             return
         logging.info("[%dms] Sleep requested by tool", self._elapsed_ms())
+        self._sleep_requested_ts = time.monotonic()
         self.sleep_after_response.set()
 
     def _wake_from_sleep_mode(self, *, send_wake_notice: bool = True) -> None:
         """Wake runtime from sleep mode and restore active realtime session."""
-        self._sleep_drain_at = 0.0
+        self.sleep_after_response.clear()
         logging.info("[%dms] Offline wakeword detected, waking up", self._elapsed_ms())
 
         if self.recording_started:

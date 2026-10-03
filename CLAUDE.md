@@ -121,7 +121,7 @@ No blocking work in any callback. Audio playback runs via `audio_queue`; motion 
 - **Delegation:** When uncertain, the model uses `delegate_task` (OpenClaw) rather than refusing
 - **Home Assistant sensitive domains** (`lock`, `alarm_control_panel`, `cover`, `button`) require explicit user confirmation before executing
 - **Refactoring:** Prefer root-cause fixes over compatibility shims; remove dead code when safe
-- **Feature docs:** [`docs/features.md`](docs/features.md) lists everything Dobby does, in plain pt-BR from the user's point of view (no jargon). Whenever you add, change or remove a user-facing feature (tool, behavior, mode, integration), update that file in the same change.
+- **Feature docs:** [`docs/features.md`](docs/features.md) lists everything Dobby does, in plain English from the user's point of view (no jargon). Whenever you add, change or remove a user-facing feature (tool, behavior, mode, integration), update that file in the same change.
 
 ## Deployment
 
@@ -134,8 +134,14 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | Variable | Default | Notes |
 |---|---|---|
 | `REACHY_BRIDGE_URL` | `http://reachy-bridge:8001` | Set to `sdk` to enable Reachy SDK mode |
-| `OPENAI_API_KEY` | — | Read via `LLM_API_KEY_ENV` (default: `OPENAI_API_KEY`) |
+| `OPENAI_API_KEY` | — | Read via `LLM_API_KEY_ENV`. Optional with `CONVERSATION_PROVIDER=gemini` (speaker memory then uses Gemini too) |
+| `CONVERSATION_PROVIDER` | `openai` | `openai` (Realtime API) or `gemini` (Gemini Live) |
 | `REALTIME_MODEL` | `gpt-realtime` | OpenAI Realtime API model |
+| `GEMINI_API_KEY` | — | Required when `CONVERSATION_PROVIDER=gemini` |
+| `GEMINI_LIVE_MODEL` | `gemini-3.8-live` | Or `gemini-3.8-live-extended-thinking` (adds ~2.5 s before tool calls) |
+| `GEMINI_THINKING_LEVEL` | `low` | Only for the extended-thinking model (`low`/`medium`/`high`) |
+| `GEMINI_VOICE` | — | Optional prebuilt Gemini voice name (for example `Algenib`) |
+| `GEMINI_VOICE_STYLE` | — | Free-text delivery style added to the system prompt (tone, pace, mood) |
 | `STT_LANGUAGE` | `pt` | Speech recognition language |
 | `BRIDGE_LOG_LEVEL` | `INFO` | Log verbosity (`DEBUG`, `INFO`, `WARNING`) |
 | `OFFLINE_WAKEWORD_ENABLED` | `1` | Enable offline wakeword detection |

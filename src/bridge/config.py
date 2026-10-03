@@ -97,6 +97,11 @@ class BridgeConfig:
     notification_server_port: int
     scheduler_jobs_file: str
     weather_default_city: str
+    conversation_provider: str = "openai"
+    gemini_live_model: str = "gemini-3.8-live"
+    gemini_thinking_level: str = "low"
+    gemini_voice: str = ""
+    gemini_voice_style: str = ""
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -185,4 +190,9 @@ class BridgeConfig:
             notification_server_port=int(os.getenv("NOTIFICATION_SERVER_PORT", "18800")),
             scheduler_jobs_file=os.getenv("SCHEDULER_JOBS_FILE", "~/.dobby/scheduler_jobs.json").strip(),
             weather_default_city=os.getenv("WEATHER_DEFAULT_CITY", "Rio de Janeiro").strip(),
+            conversation_provider=os.getenv("CONVERSATION_PROVIDER", "openai").strip().lower(),
+            gemini_live_model=os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live").strip(),
+            gemini_thinking_level=os.getenv("GEMINI_THINKING_LEVEL", "low").strip(),
+            gemini_voice=os.getenv("GEMINI_VOICE", "").strip(),
+            gemini_voice_style=os.getenv("GEMINI_VOICE_STYLE", "").strip(),
         )
