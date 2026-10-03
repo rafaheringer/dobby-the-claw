@@ -41,7 +41,13 @@ cp .env.example .env
 docker compose up --build
 ```
 
-> On the **Raspberry Pi the bridge runs natively** (systemd `dobby-bridge.service` in the
+> **Current setup (2026-10):** the Reachy Mini is plugged into the Windows PC, which runs the
+> Reachy daemon + bridge (`powershell -File scripts/run-windows.ps1`). The Raspberry Pi only runs
+> OpenClaw (:18789) and Home Assistant (:8123), reached through an SSH tunnel (18789, 8123 and the
+> reverse 18800). `dobby-bridge`/`reachy-mini-daemon` are disabled on the Pi. Run from `src/`
+> (relative `../.dobby` and `../models` paths). First OpenClaw delegation can take ~30 s (cold agent).
+>
+> Older note — on the **Raspberry Pi the bridge ran natively** (systemd `dobby-bridge.service` in the
 > `reachy_mini_env` virtualenv), not in Docker — Docker's CPU/memory overhead and device
 > passthrough are too costly on the throttled Pi. See [`docs/raspberry-integration.md`](docs/raspberry-integration.md#deploying-the-bridge-native).
 > The `docker-compose.rpi.yml` override is kept minimal; the base + override must not both
@@ -115,6 +121,7 @@ No blocking work in any callback. Audio playback runs via `audio_queue`; motion 
 - **Delegation:** When uncertain, the model uses `delegate_task` (OpenClaw) rather than refusing
 - **Home Assistant sensitive domains** (`lock`, `alarm_control_panel`, `cover`, `button`) require explicit user confirmation before executing
 - **Refactoring:** Prefer root-cause fixes over compatibility shims; remove dead code when safe
+- **Feature docs:** [`docs/features.md`](docs/features.md) lists everything Dobby does, in plain pt-BR from the user's point of view (no jargon). Whenever you add, change or remove a user-facing feature (tool, behavior, mode, integration), update that file in the same change.
 
 ## Deployment
 

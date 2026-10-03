@@ -40,7 +40,7 @@ class ConversationSessionPort(Protocol):
         """Send one input audio sample chunk to the session."""
         ...
 
-    def send_text(self, text: str) -> bool:
+    def send_text(self, text: str, respond: bool = True) -> bool:
         """Send one text turn and report whether enqueueing succeeded."""
         ...
 

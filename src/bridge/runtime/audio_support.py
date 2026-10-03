@@ -19,6 +19,7 @@ from bridge.tools import (
     DanceTool,
     EmotionTool,
     EnrollSpeakerTool,
+    CurrentTimeTool,
     GoToSleepTool,
     HomeAssistantDiscoverTool,
     HomeAssistantExecuteActionTool,
@@ -61,6 +62,7 @@ def build_tool_registry(
     """Build and populate runtime tool registry based on config."""
     tool_registry = ToolRegistry()
     tool_registry.register(WeatherTool(config.weather_default_city))
+    tool_registry.register(CurrentTimeTool())
     tool_registry.register(
         GoToSleepTool(
             wakeword_enabled=config.offline_wakeword_enabled,

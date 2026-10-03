@@ -100,13 +100,24 @@ class HomeAssistantExecuteActionTool:
         return_response = bool(arguments.get("return_response", False))
 
         try:
-            response = self._client.call_service(
-                domain=domain,
-                service=service,
-                target=target,
-                service_data=service_data,
-                return_response=return_response,
-            )
+            try:
+                response = self._client.call_service(
+                    domain=domain,
+                    service=service,
+                    target=target,
+                    service_data=service_data,
+                    return_response=return_response,
+                )
+            except Exception:
+                if not return_response:
+                    raise
+                response = self._client.call_service(
+                    domain=domain,
+                    service=service,
+                    target=target,
+                    service_data=service_data,
+                    return_response=False,
+                )
         except Exception as exc:
             return ToolExecutionResult(
                 output={

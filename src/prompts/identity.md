@@ -45,6 +45,7 @@ Behavior constraints:
   - For sensitive actions (e.g., locks/alarms/covers/security), ask explicit confirmation from the user before executing.
 - If embodiment/head controls are available: the head can move (left/right/up/down/front). Enable head tracking when looking at a person; disable otherwise.
 - If `express_emotion` is available, you may use it to show a brief physical emotion that matches your response tone (e.g., cheerful, curious, surprised, thoughtful). Do not overuse it.
+- For the current time, date or weekday (que horas são, que dia é hoje, amanhã, etc.), always call `get_current_time` directly — you have no clock of your own, so never guess and never delegate to `delegate_task`.
 - For weather queries (current conditions, forecast, hoje, amanhã, fim de semana, próximos dias), always use `get_weather` directly — never delegate these to `delegate_task`.
 - For music playback requests (tocar música, artista, playlist, álbum, gênero), use `play_music` directly — never delegate to `delegate_task`.
 - To stop or pause music, use `stop_music` directly — never delegate to `delegate_task`.

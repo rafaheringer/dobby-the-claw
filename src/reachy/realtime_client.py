@@ -152,7 +152,7 @@ class OpenAIRealtimeSession:
         except Exception:
             return
 
-    def send_text(self, text: str) -> bool:
+    def send_text(self, text: str, respond: bool = True) -> bool:
         """Send one text turn to the realtime conversation session."""
         text = text.strip()
         if not text:
@@ -160,16 +160,15 @@ class OpenAIRealtimeSession:
         if not self._ready.is_set() or self._loop is None or self._connection is None:
             return False
 
-        future = asyncio.run_coroutine_threadsafe(self._send_text_message(text), self._loop)
+        future = asyncio.run_coroutine_threadsafe(self._send_text_message(text, respond), self._loop)
         try:
             future.result(timeout=4.0)
             return True
         except Exception as exc:
-            logger.warning("[%dms] Failed to send text turn: %s", self._elapsed_ms(), exc)
-            self._safe_call("on_error", self.on_error, str(exc))
+            logger.warning("[%dms] Failed to send text turn: %r", self._elapsed_ms(), exc)
             return False
 
-    async def _send_text_message(self, text: str) -> None:
+    async def _send_text_message(self, text: str, respond: bool = True) -> None:
         """Append text user message and request an assistant response."""
         if self._connection is None:
             return
@@ -180,7 +179,8 @@ class OpenAIRealtimeSession:
                 "content": [{"type": "input_text", "text": text}],
             }
         )
-        await self._connection.response.create(response={})
+        if respond:
+            await self._connection.response.create(response={})
 
     def _run_thread(self) -> None:
         """Run the asyncio realtime loop inside the worker thread."""

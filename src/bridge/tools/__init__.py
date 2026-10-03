@@ -2,6 +2,7 @@
 
 from bridge.tools.camera_snapshot import CameraSnapshotTool
 from bridge.tools.contracts import ToolExecutionResult
+from bridge.tools.current_time import CurrentTimeTool
 from bridge.tools.dance import DanceTool
 from bridge.tools.emotion import EmotionTool
 from bridge.tools.enroll_speaker import EnrollSpeakerTool
@@ -17,6 +18,7 @@ from bridge.tools.weather import WeatherTool
 
 __all__ = [
     "CameraSnapshotTool",
+    "CurrentTimeTool",
     "DanceTool",
     "EmotionTool",
     "EnrollSpeakerTool",

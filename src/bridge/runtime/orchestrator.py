@@ -375,7 +375,7 @@ class RuntimeOrchestrator:
             )
         logging.info("[%dms] Speaker changed → %s", self._elapsed_ms(), detected or "visitante")
         if self.realtime is not None:
-            self.realtime.send_text(notice)
+            self.realtime.send_text(notice, respond=False)
 
     def _on_assistant_text(self, text: str) -> None:
         """Log assistant text responses emitted by realtime session."""

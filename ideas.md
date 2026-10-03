@@ -1,0 +1,6 @@
+- Permitir realizar compras no ifood e mercado livre a partir de um cartão de crédito limitado, registrado no 1Passpord, com MCP.
+- Análise realtime e constante de imagens para detectar objetos e principalmente, gatos!
+- Permitir remotamente acesso à câmera, com movimento, para virar uma câmera de segurança se estiver em modo vigilha
+- Configurar para só conversar quando for chamado e saber que é com ele ou que ele quer se meter num assunto
+- Modos: sempre acordado, normal e vigilante.
+- Sempre que detectar uma nova pessoa, dar oi! Seja via vídeo ou áudio.

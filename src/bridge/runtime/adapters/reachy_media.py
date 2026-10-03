@@ -148,6 +148,7 @@ class ReachySdkMediaIO(MediaIOPort):
     def __init__(self, reachy_sdk_instance: Any) -> None:
         """Bind media controls from the provided Reachy SDK instance."""
         self._media = reachy_sdk_instance.media
+        self._recording = False
 
     def get_output_audio_samplerate(self) -> int:
         """Return Reachy speaker output sample rate."""
@@ -159,8 +160,17 @@ class ReachySdkMediaIO(MediaIOPort):
 
     def get_audio_sample(self) -> NDArray[np.float32] | None:
         """Fetch one audio sample chunk from Reachy microphone stream."""
-        sample = self._media.get_audio_sample()
-        return sample
+        # SDK chunks are ~10 ms; draining all pending ones keeps up with the mic instead of
+        # lagging and dropping audio when the main loop runs slower than real time.
+        chunks = []
+        for _ in range(200):
+            chunk = self._media.get_audio_sample()
+            if chunk is None:
+                break
+            chunks.append(chunk)
+        if not chunks:
+            return None
+        return chunks[0] if len(chunks) == 1 else np.concatenate(chunks, axis=0)
 
     def start_playing(self) -> None:
         """Start Reachy audio playback pipeline."""
@@ -169,6 +179,10 @@ class ReachySdkMediaIO(MediaIOPort):
     def stop_playing(self) -> None:
         """Stop Reachy audio playback pipeline."""
         self._media.stop_playing()
+        # The SDK GStreamer backend shares one pipeline for mic and speaker, so stopping playback
+        # also stops the microphone; restart it to keep listening.
+        if self._recording:
+            self._media.start_recording()
 
     def push_audio_sample(self, sample: NDArray[np.float32]) -> None:
         """Push one audio sample chunk to Reachy speakers."""
@@ -177,9 +191,11 @@ class ReachySdkMediaIO(MediaIOPort):
     def start_recording(self) -> None:
         """Start Reachy microphone recording."""
         self._media.start_recording()
+        self._recording = True
 
     def stop_recording(self) -> None:
         """Stop Reachy microphone recording."""
+        self._recording = False
         self._media.stop_recording()
 
 
