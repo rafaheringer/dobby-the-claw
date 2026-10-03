@@ -753,8 +753,10 @@ class CameraWorker:
         """Log camera starvation periodically."""
         if (current_time - self._last_missing_frame_log_ts) < self._debug_log_interval_s:
             return
-        self._last_missing_frame_log_ts = current_time
         elapsed = max(0.0, current_time - self._missing_frame_since_ts) if self._missing_frame_since_ts else 0.0
+        if elapsed < 3.0:
+            return
+        self._last_missing_frame_log_ts = current_time
         if self._using_local_camera_fallback:
             logger.debug(
                 "Camera: using local fallback (index=%s)",
