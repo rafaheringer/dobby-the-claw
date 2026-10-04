@@ -102,6 +102,7 @@ class BridgeConfig:
     gemini_thinking_level: str = "low"
     gemini_voice: str = ""
     gemini_voice_style: str = ""
+    gemini_proactive_audio: bool = True
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -195,4 +196,5 @@ class BridgeConfig:
             gemini_thinking_level=os.getenv("GEMINI_THINKING_LEVEL", "low").strip(),
             gemini_voice=os.getenv("GEMINI_VOICE", "").strip(),
             gemini_voice_style=os.getenv("GEMINI_VOICE_STYLE", "").strip(),
+            gemini_proactive_audio=_env_flag("GEMINI_PROACTIVE_AUDIO", True),
         )

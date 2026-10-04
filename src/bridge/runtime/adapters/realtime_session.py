@@ -7,6 +7,7 @@ from typing import Any, Callable
 from bridge.config import BridgeConfig
 
 from bridge.runtime.audio_support import build_realtime_session, resolve_gemini_api_key
+from bridge.runtime.bootstrap import load_prompt
 from bridge.runtime.ports import ConversationCallbacks, ConversationSessionFactoryPort, ConversationSessionPort
 
 
@@ -64,6 +65,10 @@ class GeminiLiveSessionFactory(ConversationSessionFactoryPort):
         gemini_key = resolve_gemini_api_key()
         if not gemini_key:
             raise RuntimeError("Missing GEMINI_API_KEY for CONVERSATION_PROVIDER=gemini")
+        proactive_audio = self._config.gemini_proactive_audio
+        if proactive_audio:
+            # Let the model ignore speech that isn't addressed to it (side conversations, TV).
+            identity_prompt = f"{identity_prompt}\n\n{load_prompt('addressing.md')}"
         return GeminiLiveSession(
             api_key=gemini_key,
             model=self._config.gemini_live_model,
@@ -71,6 +76,7 @@ class GeminiLiveSessionFactory(ConversationSessionFactoryPort):
             thinking_level=self._config.gemini_thinking_level,
             voice=self._config.gemini_voice,
             voice_style=self._config.gemini_voice_style,
+            proactive_audio=proactive_audio,
             vad_silence_ms=max(200, self._config.realtime_vad_silence_ms),
             vad_prefix_padding_ms=self._config.realtime_vad_prefix_padding_ms,
             tool_specs=tool_specs,

@@ -141,15 +141,20 @@ def stop_runtime_workers(runtime: ReachyRuntime) -> None:
 
 def load_identity_prompt() -> str:
     """Load robot identity instructions from `prompts/identity.md`."""
+    return load_prompt("identity.md")
+
+
+def load_prompt(filename: str) -> str:
+    """Load a non-empty prompt file from the `prompts/` directory."""
     src_root = Path(__file__).resolve().parents[2]
-    identity_path = src_root / "prompts" / "identity.md"
+    prompt_path = src_root / "prompts" / filename
     try:
-        content = identity_path.read_text(encoding="utf-8").strip()
+        content = prompt_path.read_text(encoding="utf-8").strip()
     except OSError as exc:
-        raise RuntimeError(f"Failed to load identity prompt at {identity_path}: {exc}") from exc
+        raise RuntimeError(f"Failed to load prompt at {prompt_path}: {exc}") from exc
 
     if not content:
-        raise RuntimeError(f"Identity prompt is empty: {identity_path}")
+        raise RuntimeError(f"Prompt is empty: {prompt_path}")
 
     return content
 

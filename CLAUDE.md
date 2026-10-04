@@ -142,6 +142,7 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `GEMINI_THINKING_LEVEL` | `low` | Only for the extended-thinking model (`low`/`medium`/`high`) |
 | `GEMINI_VOICE` | — | Optional prebuilt Gemini voice name (for example `Algenib`) |
 | `GEMINI_VOICE_STYLE` | — | Free-text delivery style added to the system prompt (tone, pace, mood) |
+| `GEMINI_PROACTIVE_AUDIO` | `1` | Gemini decides whether speech is addressed to Dobby and stays silent otherwise (rules in `src/prompts/addressing.md`; uses the v1alpha Live API) |
 | `STT_LANGUAGE` | `pt` | Speech recognition language |
 | `BRIDGE_LOG_LEVEL` | `INFO` | Log verbosity (`DEBUG`, `INFO`, `WARNING`) |
 | `OFFLINE_WAKEWORD_ENABLED` | `1` | Enable offline wakeword detection |

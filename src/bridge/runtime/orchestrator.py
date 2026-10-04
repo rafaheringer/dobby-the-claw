@@ -12,7 +12,7 @@ from bridge.config import BridgeConfig
 from reachy.camera_worker import CameraWorker
 from reachy.client import ReachyClient
 from reachy.motion import MotionManager
-from bridge.state_machine import Event, StateMachine
+from bridge.state_machine import Event, State, StateMachine
 
 from bridge.runtime.adapters.notification_server import NotificationServer
 from bridge.runtime.adapters.reachy_actions import ReachyRobotActions
@@ -135,6 +135,7 @@ class RuntimeOrchestrator:
         self.sleep_after_response = threading.Event()
         self._sleep_requested_ts: float = 0.0
         self._last_audio_chunk_ts: float = 0.0
+        self._last_tool_call_ts: float = 0.0
         self._playback_end_ts: float = 0.0  # estimated time when queued assistant audio finishes
         self.realtime: ConversationSessionPort | None = None
         self.last_user_activity = time.monotonic()
@@ -279,6 +280,7 @@ class RuntimeOrchestrator:
                 if self.idle_sleep_enabled and (now - self.last_user_activity) >= self.idle_sleep_timeout_s:
                     self._enter_sleep_mode()
 
+                self._reset_if_unanswered(now)
                 self._drain_notification_queue()
 
                 time.sleep(0.01)
@@ -307,6 +309,16 @@ class RuntimeOrchestrator:
     def _elapsed_ms(self) -> int:
         """Return elapsed orchestrator runtime in milliseconds."""
         return int((time.monotonic() - self.loop_start) * 1000)
+
+    def _reset_if_unanswered(self, now: float) -> None:
+        """Leave the listening pose when the model chose not to answer (speech not meant for it)."""
+        if self.state_machine.state not in (State.LISTENING, State.THINKING):
+            return
+        last_event = max(self.last_user_activity, self._last_audio_chunk_ts, self._last_tool_call_ts)
+        if now - last_event < 12.0:
+            return
+        logging.info("[%dms] No reply to the last utterance; back to idle", self._elapsed_ms())
+        apply_event(self.state_machine, Event.RESET, self.motion_manager)
 
     def _mark_user_activity(self) -> None:
         """Record the latest user activity timestamp for idle-sleep logic."""
@@ -505,6 +517,7 @@ class RuntimeOrchestrator:
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Execute one tool call and apply delegation/sleep side effects."""
+        self._last_tool_call_ts = time.monotonic()
         is_openclaw_delegate = name == "delegate_task"
         if is_openclaw_delegate:
             logging.info("[%dms] Delegating task to Open Claw", self._elapsed_ms())

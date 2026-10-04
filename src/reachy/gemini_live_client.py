@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import threading
 import time
 from concurrent.futures import CancelledError
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 INPUT_RATE = 16000
 MAX_RECONNECTS = 5
+# Transcript markers emitted when proactive audio decides not to speak.
+_SILENCE_MARKERS = re.compile(r"<no speech>|\{pause\}")
 
 
 def tool_specs_to_declarations(tool_specs: List[Dict[str, Any]]) -> List[types.FunctionDeclaration]:
@@ -54,6 +57,7 @@ class GeminiLiveSession:
         thinking_level: str,
         voice: str,
         voice_style: str,
+        proactive_audio: bool,
         vad_silence_ms: int,
         vad_prefix_padding_ms: int,
         on_speech_start: Optional[Callable[[], None]] = None,
@@ -72,6 +76,7 @@ class GeminiLiveSession:
         self.thinking_level = thinking_level
         self.voice = voice
         self.voice_style = voice_style
+        self.proactive_audio = proactive_audio
         self.vad_silence_ms = vad_silence_ms
         self.vad_prefix_padding_ms = vad_prefix_padding_ms
 
@@ -160,6 +165,8 @@ class GeminiLiveSession:
             cfg["speech_config"] = {
                 "voice_config": {"prebuilt_voice_config": {"voice_name": self.voice}}
             }
+        if self.proactive_audio:
+            cfg["proactivity"] = {"proactive_audio": True}
         if "extended" in self.model:
             cfg["thinking_config"] = {"thinking_level": self.thinking_level}
         declarations = tool_specs_to_declarations(self.tool_specs)
@@ -169,7 +176,9 @@ class GeminiLiveSession:
 
     async def _run(self) -> None:
         self._loop = asyncio.get_running_loop()
-        client = genai.Client(api_key=self.api_key)
+        # Proactive audio is only available on the v1alpha Live API.
+        http_options = {"api_version": "v1alpha"} if self.proactive_audio else None
+        client = genai.Client(api_key=self.api_key, http_options=http_options)
         attempts = 0
         try:
             while not self._stop.is_set():
@@ -217,7 +226,7 @@ class GeminiLiveSession:
             self._safe_call("on_user_transcript", self.on_user_transcript, text)
 
     def _flush_assistant_text(self) -> None:
-        text = self._assistant_text.strip()
+        text = _SILENCE_MARKERS.sub("", self._assistant_text).strip()
         self._assistant_text = ""
         if text:
             logger.info("[%dms] Assistant text: %s", self._elapsed_ms(), text)
