@@ -155,5 +155,6 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `HOME_ASSISTANT_URL` | `http://127.0.0.1:8123` | HA base URL (HTTP or WS scheme) |
 | `HOME_ASSISTANT_TOKEN` | — | Long-lived HA access token |
 | `SPEAKER_ID_ENABLED` | `1` | Enable face-based speaker identification |
+| `VOICE_ID_ENABLED` | `1` | Also identify speakers by voice (sherpa-onnx), learned automatically from face matches |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Persist per-speaker conversation summaries |
 | `NOTIFICATION_SERVER_PORT` | `18800` | HTTP port for injecting async notifications |

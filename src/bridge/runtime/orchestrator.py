@@ -29,6 +29,7 @@ from bridge.runtime.audio_support import (
 )
 from homeassistant.home_assistant_client import HomeAssistantWsClient
 from bridge.runtime.common import apply_event
+from bridge.runtime.speaker_id import MicRingBuffer, fuse_speaker
 from bridge.runtime.ports import (
     ConversationCallbacks,
     ConversationSessionFactoryPort,
@@ -107,6 +108,23 @@ class RuntimeOrchestrator:
                 provider=memory_provider,
             )
 
+        self._voice = None
+        self._mic_buffer: MicRingBuffer | None = None
+        self._speaker_id_lock = threading.Lock()
+        self._last_turn_voice_emb = None
+        self._utterance_done = threading.Event()  # set when the user transcript for the turn arrives
+        self._playback_cut_ts = 0.0  # when playback was last stopped by the user talking over Dobby
+        if config.speaker_id_enabled and config.voice_id_enabled:
+            import os as _os
+            from reachy.voice_recognizer import VoiceRecognizer
+            voice = VoiceRecognizer(
+                _os.path.expanduser(config.speaker_id_profiles_dir),
+                model_path=config.voice_id_model_path,
+            )
+            if voice.available:
+                self._voice = voice
+                self._mic_buffer = MicRingBuffer()
+
         self._notification_queue: "Queue[str]" = Queue()
 
         self.tool_runtime = tool_runtime or build_tool_runtime(
@@ -176,7 +194,7 @@ class RuntimeOrchestrator:
 
         if self.camera_worker is not None and self.config.speaker_id_enabled:
             try:
-                speaker = self.camera_worker.identify_current_speaker(wait_s=0.5)
+                speaker, _ = self.camera_worker.identify_current_speaker(wait_s=0.5)
                 self._current_speaker = speaker
                 if speaker:
                     logging.info("[%dms] Startup speaker ID: %s", self._elapsed_ms(), speaker)
@@ -215,6 +233,8 @@ class RuntimeOrchestrator:
                     sample = None
                 if sample is not None:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
+                    if self._mic_buffer is not None:
+                        self._mic_buffer.append(self.input_sample_rate, sample, time.monotonic())
 
                 if self.sleeping:
                     has_notification = not self._notification_queue.empty()
@@ -229,6 +249,7 @@ class RuntimeOrchestrator:
                 if sample is not None and self.realtime is not None and self.active_mode_uses_mic_recording:
                     self.realtime.feed_audio(self.input_sample_rate, sample)
 
+                was_playing = self.playback_started
                 self.playback_started, self.audio_chunks_total, self.responses_streamed = process_audio_queue(
                     audio_queue=self.audio_queue,
                     media_io=self.media_io,
@@ -241,6 +262,8 @@ class RuntimeOrchestrator:
                     state_machine=self.state_machine,
                     motion_manager=self.motion_manager,
                 )
+                if was_playing and not self.playback_started:
+                    self._playback_cut_ts = time.monotonic()
                 if self.sleep_after_response.is_set():
                     # The model may speak its farewell after the tool call, so wait for a quiet gap
                     # after the last audio chunk and for the queued audio to finish playing.
@@ -328,22 +351,91 @@ class RuntimeOrchestrator:
         """Handle speech-start callback from conversation session."""
         logging.debug("[%dms] Callback speech_start", self._elapsed_ms())
         self._mark_user_activity()
+        speech_ts = time.monotonic()
+        # Mic audio before this point may still contain Dobby's own voice.
+        playback_end = self._playback_end_ts
         self._playback_end_ts = 0.0
+        self._utterance_done.clear()
         self.audio_queue.put(("force_stop", None))
         try:
             apply_event(self.state_machine, Event.WAKE_WORD, self.motion_manager)
             self.robot_actions.gesture_listening()
         except Exception as exc:
             logging.warning("[%dms] gesture.listening failed: %s", self._elapsed_ms(), exc)
-        if self.camera_worker is not None and self.config.speaker_id_enabled:
-            threading.Thread(target=self._identify_speaker_for_turn, daemon=True).start()
+        if self.config.speaker_id_enabled and (self.camera_worker is not None or self._voice is not None):
+            threading.Thread(
+                target=self._identify_speaker_for_turn, args=(speech_ts, playback_end), daemon=True
+            ).start()
 
-    def _identify_speaker_for_turn(self) -> None:
-        """Background: DOA-steer + face-ID so result is ready before transcript arrives."""
+    def _identify_speaker_for_turn(self, speech_ts: float, playback_end: float) -> None:
+        """Background: identify who is talking, by face right away and by voice once they finish."""
+        if not self._speaker_id_lock.acquire(blocking=False):
+            return  # interruption and transcript can both signal the same utterance
         try:
-            self.camera_worker.identify_current_speaker(wait_s=0.4)  # type: ignore[union-attr]
+            from reachy.face_recognizer import FaceRecognizer
+            face_name, face_score = None, 0.0
+            if self.camera_worker is not None:
+                face_name, face_score = self.camera_worker.identify_current_speaker(wait_s=0.4, update=False)
+                logging.info(
+                    "[%dms] Turn face: %s %.2f after %.1fs",
+                    self._elapsed_ms(), face_name, face_score, time.monotonic() - speech_ts,
+                )
+                # Early pass: a known face is enough to warn the model before it answers.
+                if face_name and face_name != FaceRecognizer.UNKNOWN:
+                    self._set_turn_speaker(face_name)
+
+            emb = None
+            if self._voice is not None and self._mic_buffer is not None:
+                # The echo canceller mutes the mic while Dobby talks, and speech start is only signalled
+                # with the first transcript, so embed the whole utterance once it is over.
+                self._utterance_done.wait(timeout=8.0)
+                end = time.monotonic()
+                start = max(speech_ts - 2.0, end - 7.5)
+                if playback_end > 0.0:
+                    start = max(start, min(playback_end + 0.3, speech_ts))
+                if self._playback_cut_ts >= speech_ts - 0.5:
+                    start = max(start, self._playback_cut_ts + 0.2)
+                emb = self._voice.embed(self._mic_buffer.window(start, end))
+            self._last_turn_voice_emb = emb
+
+            voice_scores, voice_counts = None, {}
+            if emb is not None:
+                voice_scores = self._voice.scores(emb)  # type: ignore[union-attr]
+                voice_counts = {name: self._voice.sample_count(name) for name in voice_scores}  # type: ignore[union-attr]
+            decision = fuse_speaker(face_name, face_score, voice_scores, voice_counts, FaceRecognizer.UNKNOWN)
+            logging.info(
+                "[%dms] Turn speaker: %s via %s after %.1fs (face=%s %.2f, voice=%s)",
+                self._elapsed_ms(), decision.name or "unchanged", decision.source, time.monotonic() - speech_ts,
+                face_name, face_score,
+                {n: round(v, 2) for n, v in voice_scores.items()} if voice_scores is not None else "n/a",
+            )
+            if decision.learn_voice_as and emb is not None:
+                self._voice.add_sample(decision.learn_voice_as, emb)  # type: ignore[union-attr]
+            if decision.name is not None:
+                self._set_turn_speaker(decision.name)
         except Exception as exc:
-            logging.debug("Speaker turn ID failed: %s", exc)
+            logging.warning("Speaker turn ID failed: %s", exc)
+        finally:
+            self._speaker_id_lock.release()
+
+    def _set_turn_speaker(self, name: str) -> None:
+        """Make `name` the current speaker and tell the model right away when it changed."""
+        from reachy.face_recognizer import FaceRecognizer
+        if self.camera_worker is not None:
+            self.camera_worker.set_current_speaker(name, hold_s=20.0)
+        if name == self._current_speaker:
+            return
+        self._current_speaker = name
+        if name != FaceRecognizer.UNKNOWN:
+            notice = f"SYSTEM NOTICE (não é mensagem do usuário): quem está falando agora é {name}."
+        else:
+            notice = (
+                "SYSTEM NOTICE (não é mensagem do usuário): quem está falando agora "
+                "é uma pessoa não reconhecida (visitante)."
+            )
+        logging.info("[%dms] Speaker changed → %s", self._elapsed_ms(), name)
+        if self.realtime is not None:
+            self.realtime.send_text(notice, respond=False)
 
     def _on_user_text(self, text: str, *, source: str) -> None:
         """Handle recognized or typed user text and trigger think gesture."""
@@ -354,33 +446,9 @@ class RuntimeOrchestrator:
             self.robot_actions.gesture_think()
         except Exception as exc:
             logging.warning("[%dms] gesture.think failed: %s", self._elapsed_ms(), exc)
-        if source == "said":
-            if text:
-                self._session_messages.append({"role": "user", "content": text})
-            self._maybe_inject_speaker_change()
-
-    def _maybe_inject_speaker_change(self) -> None:
-        """Notify the model when the identified speaker changed since the last turn."""
-        if self.camera_worker is None or not self.config.speaker_id_enabled:
-            return
-        from reachy.face_recognizer import FaceRecognizer
-        detected = self.camera_worker.get_current_speaker()
-        if detected == self._current_speaker:
-            return
-        self._current_speaker = detected
-        if detected and detected != FaceRecognizer.UNKNOWN:
-            notice = (
-                f"SYSTEM NOTICE (não é mensagem do usuário): o falante atual mudou. "
-                f"A pessoa que acabou de falar foi identificada como: {detected}."
-            )
-        else:
-            notice = (
-                "SYSTEM NOTICE (não é mensagem do usuário): o falante atual mudou. "
-                "A pessoa que acabou de falar não foi reconhecida (visitante)."
-            )
-        logging.info("[%dms] Speaker changed → %s", self._elapsed_ms(), detected or "visitante")
-        if self.realtime is not None:
-            self.realtime.send_text(notice, respond=False)
+        if source == "said" and text:
+            self._session_messages.append({"role": "user", "content": text})
+            self._utterance_done.set()
 
     def _on_assistant_text(self, text: str) -> None:
         """Log assistant text responses emitted by realtime session."""
@@ -539,8 +607,9 @@ class RuntimeOrchestrator:
                 if isinstance(output, dict) and output.get("ok") and enrolled_name:
                     self._current_speaker = enrolled_name
                     if self.camera_worker is not None:
-                        with self.camera_worker._speaker_lock:
-                            self.camera_worker._current_speaker = enrolled_name
+                        self.camera_worker.set_current_speaker(enrolled_name, hold_s=20.0)
+                    if self._voice is not None and self._last_turn_voice_emb is not None:
+                        self._voice.add_sample(enrolled_name, self._last_turn_voice_emb)
             return result
         finally:
             if is_openclaw_delegate:
@@ -684,7 +753,7 @@ class RuntimeOrchestrator:
 
         if self.camera_worker is not None:
             self.camera_worker.start()
-            speaker = self.camera_worker.identify_current_speaker(wait_s=0.7)
+            speaker, _ = self.camera_worker.identify_current_speaker(wait_s=0.7)
             if speaker:
                 logging.info("[%dms] Speaker identified: %s", self._elapsed_ms(), speaker)
             self._current_speaker = speaker

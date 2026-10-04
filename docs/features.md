@@ -26,6 +26,7 @@ This document describes, in plain language, everything Dobby can do today. It is
 
 - **Sees its surroundings.** Ask "what do you see?" and it takes a photo on the spot, describes the scene, reads text or identifies objects.
 - **Recognizes who is in front of it.** It knows each registered person by their face and addresses them by name.
+- **Tells people apart in the same conversation.** When two people take turns asking things, it knows who asked what, by face and also by voice, so it works even when the person talking is off-camera. It learns each person's voice by itself as they talk in front of it.
 
 ## People and memory
 

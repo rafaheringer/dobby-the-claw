@@ -147,7 +147,9 @@ Key environment variables (full list in `.env.example`):
 | `OFFLINE_WAKEWORD_ENABLED` | `1` | Enable wake word / RMS fallback |
 | `WAKEWORD_MODEL_PATH` | _(empty)_ | Custom openWakeWord `.onnx` model path |
 | `SPEAKER_ID_ENABLED` | `1` | Enable face-based speaker identification (requires insightface) |
-| `SPEAKER_ID_PROFILES_DIR` | `~/.dobby/face_profiles` | Directory for enrolled face profiles |
+| `SPEAKER_ID_PROFILES_DIR` | `~/.dobby/face_profiles` | Directory for enrolled face and voice profiles |
+| `VOICE_ID_ENABLED` | `1` | Also identify speakers by voice (requires sherpa-onnx; voice profiles are learned from face matches) |
+| `VOICE_ID_MODEL_PATH` | _(empty)_ | Speaker-embedding `.onnx` model; empty downloads CAM++ to `models/speaker/` |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Enable per-speaker persistent memory via mem0 |
 | `SPEAKER_MEMORY_MODEL` | `gpt-4o-mini` | Model used to extract facts from sessions |
 | `SPEAKER_MEMORY_DIR` | `~/.dobby/memories` | Directory for mem0 storage (Qdrant + SQLite) |

@@ -103,6 +103,8 @@ class BridgeConfig:
     gemini_voice: str = ""
     gemini_voice_style: str = ""
     gemini_proactive_audio: bool = True
+    voice_id_enabled: bool = True
+    voice_id_model_path: str = ""
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -197,4 +199,6 @@ class BridgeConfig:
             gemini_voice=os.getenv("GEMINI_VOICE", "").strip(),
             gemini_voice_style=os.getenv("GEMINI_VOICE_STYLE", "").strip(),
             gemini_proactive_audio=_env_flag("GEMINI_PROACTIVE_AUDIO", True),
+            voice_id_enabled=_env_flag("VOICE_ID_ENABLED", True),
+            voice_id_model_path=os.getenv("VOICE_ID_MODEL_PATH", "").strip(),
         )

@@ -25,7 +25,9 @@ class FaceRecognizer:
     """Enroll and identify speakers by face embedding using InsightFace."""
 
     UNKNOWN = "visitante"
-    _THRESHOLD = 0.40  # cosine similarity minimum to accept a match
+    # Cosine similarity minimum to accept a match. Distant (~35 px) faces of the same person still
+    # score 0.3-0.8, while different people stay below ~0.2.
+    _THRESHOLD = 0.30
 
     def __init__(self, profiles_dir: str) -> None:
         self._dir = Path(profiles_dir)
@@ -47,7 +49,8 @@ class FaceRecognizer:
                 allowed_modules=["detection", "recognition"],
                 providers=["CPUExecutionProvider"],
             )
-            app.prepare(ctx_id=-1, det_size=(320, 320))
+            # 640 keeps faces a few meters away detectable (320 misses faces under ~40 px).
+            app.prepare(ctx_id=-1, det_size=(640, 640))
             self._app = app
             logger.info("FaceRecognizer ready (buffalo_s, CPU)")
         except Exception as exc:

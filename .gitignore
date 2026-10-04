@@ -208,3 +208,6 @@ __marimo__/
 
 #Dobby stuff
 .dobby/
+
+# Downloaded speaker-embedding model
+models/speaker/

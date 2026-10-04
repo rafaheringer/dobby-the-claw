@@ -132,6 +132,7 @@ class CameraWorker:
         self._speaker_lock = threading.Lock()
         self._last_identify_ts: float = 0.0
         self._identify_interval_s: float = 10.0
+        self._speaker_hold_until: float = 0.0  # per-turn decisions win over background face ID
 
         # Audio Direction-of-Arrival for steering head toward speaker
         # Lazy init: AudioDoA shares GStreamer resources with the camera pipeline.
@@ -189,14 +190,21 @@ class CameraWorker:
         with self._speaker_lock:
             return self._current_speaker
 
-    def identify_current_speaker(self, wait_s: float = 0.8) -> str | None:
+    def set_current_speaker(self, name: str | None, hold_s: float = 0.0) -> None:
+        """Set the current speaker, keeping background face ID from overriding it for `hold_s`."""
+        with self._speaker_lock:
+            self._current_speaker = name
+            self._speaker_hold_until = time.time() + hold_s
+
+    def identify_current_speaker(self, wait_s: float = 0.8, update: bool = True) -> tuple[str | None, float]:
         """Activate DOA steering, wait for head to turn, then identify speaker.
 
-        Returns the speaker name (or FaceRecognizer.UNKNOWN for unrecognized
-        faces), or None if face recognition is not available.
+        Returns (name, similarity): name is FaceRecognizer.UNKNOWN for unrecognized
+        faces (similarity 0.0 when no face is in view), or None if face recognition
+        is not available. With `update` the result becomes the current speaker.
         """
         if self._face_recognizer is None or not self._face_recognizer.available:
-            return None
+            return None, 0.0
 
         if self._audio_doa is not None:
             self._activate_doa_steering(duration_s=max(wait_s + 1.0, 2.5))
@@ -205,14 +213,15 @@ class CameraWorker:
 
         frame = self.get_latest_frame()
         if frame is None:
-            return None
+            return None, 0.0
 
         name, confidence = self._face_recognizer.identify(frame)
         logger.info("Speaker ID: %s (similarity=%.2f)", name, confidence)
 
-        with self._speaker_lock:
-            self._current_speaker = name
-        return name
+        if update:
+            with self._speaker_lock:
+                self._current_speaker = name
+        return name, confidence
 
     def _activate_doa_steering(self, duration_s: float = 2.5) -> None:
         """Read DOA and activate temporary yaw steering toward the sound source."""
@@ -254,6 +263,8 @@ class CameraWorker:
         try:
             name, confidence = self._face_recognizer.identify(frame)  # type: ignore[union-attr]
             with self._speaker_lock:
+                if time.time() < self._speaker_hold_until:
+                    return
                 if self._current_speaker != name:
                     logger.debug(
                         "Speaker updated: %s → %s (similarity=%.2f)",

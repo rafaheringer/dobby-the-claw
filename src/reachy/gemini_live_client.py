@@ -25,6 +25,12 @@ INPUT_RATE = 16000
 MAX_RECONNECTS = 5
 # Transcript markers emitted when proactive audio decides not to speak.
 _SILENCE_MARKERS = re.compile(r"<no speech>|\{pause\}")
+# Canned English refusal Gemini sometimes emits for images with people in them.
+_IMAGE_REFUSAL = re.compile(r"just a language model|can'?t help with that", re.IGNORECASE)
+_IMAGE_RETRY_TEXT = (
+    "SYSTEM NOTICE: descreva em português a cena da última imagem da câmera, sem identificar ninguém pelo rosto "
+    "(use apenas o nome em recognized_person, se houver)."
+)
 
 
 def tool_specs_to_declarations(tool_specs: List[Dict[str, Any]]) -> List[types.FunctionDeclaration]:
@@ -100,6 +106,7 @@ class GeminiLiveSession:
         self._assistant_text = ""
         self._user_speaking = False
         self._tasks: set[asyncio.Task] = set()
+        self._image_retry_pending = False
 
     def _elapsed_ms(self) -> int:
         return int((time.monotonic() - self._start_ts) * 1000)
@@ -230,6 +237,15 @@ class GeminiLiveSession:
         self._assistant_text = ""
         if text:
             logger.info("[%dms] Assistant text: %s", self._elapsed_ms(), text)
+            if self._image_retry_pending and _IMAGE_REFUSAL.search(text):
+                self._image_retry_pending = False
+                logger.warning("[%dms] Image refusal detected; asking for a plain scene description", self._elapsed_ms())
+                if self._session is not None:
+                    task = asyncio.ensure_future(self._session.send_realtime_input(text=_IMAGE_RETRY_TEXT))
+                    self._tasks.add(task)
+                    task.add_done_callback(self._tasks.discard)
+                return
+            self._image_retry_pending = False
             self._safe_call("on_assistant_text", self.on_assistant_text, text)
 
     async def _handle_message(self, message: Any) -> None:
@@ -318,11 +334,18 @@ class GeminiLiveSession:
         if session is None:
             return
         try:
+            # Realtime video frames only reach the model on the next turn; a content part is seen now.
             for image_b64 in images:
-                await session.send_realtime_input(
-                    video=types.Blob(data=base64.b64decode(image_b64), mime_type="image/jpeg")
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[types.Part(inline_data=types.Blob(data=base64.b64decode(image_b64), mime_type="image/jpeg"))],
+                    ),
+                    turn_complete=False,
                 )
             await session.send_tool_response(function_responses=responses)
+            if images:
+                self._image_retry_pending = True
         except Exception as exc:
             logger.warning("[%dms] Failed to send tool response: %r", self._elapsed_ms(), exc)
 
