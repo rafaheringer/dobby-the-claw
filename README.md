@@ -150,6 +150,9 @@ Key environment variables (full list in `.env.example`):
 | `SPEAKER_ID_PROFILES_DIR` | `~/.dobby/face_profiles` | Directory for enrolled face and voice profiles |
 | `VOICE_ID_ENABLED` | `1` | Also identify speakers by voice (requires sherpa-onnx; voice profiles are learned from face matches) |
 | `VOICE_ID_MODEL_PATH` | _(empty)_ | Speaker-embedding `.onnx` model; empty downloads CAM++ to `models/speaker/` |
+| `PRESENCE_ENABLED` | `1` | Detect people (MediaPipe) to follow them at a distance, choose whom to look at, and tell the model who arrived or left |
+| `PERSON_DETECTOR_MODEL` | _(empty)_ | `yolox_tiny` (default, downloaded to `models/vision/`), `yolox_s`, `efficientdet_lite0`/`efficientdet_lite2`, or an `.onnx`/`.tflite` path |
+| `PRESENCE_GREET_COOLDOWN_S` | `10800` | Seconds before the same person is greeted again |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Enable per-speaker persistent memory via mem0 |
 | `SPEAKER_MEMORY_MODEL` | `gpt-4o-mini` | Model used to extract facts from sessions |
 | `SPEAKER_MEMORY_DIR` | `~/.dobby/memories` | Directory for mem0 storage (Qdrant + SQLite) |

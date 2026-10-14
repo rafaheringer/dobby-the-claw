@@ -16,7 +16,8 @@ This document describes, in plain language, everything Dobby can do today. It is
 
 ## Physical presence
 
-- **Follows you with its head.** It turns its head to look at whoever is talking or at the face it sees.
+- **Follows you with its head.** It turns its head to look at whoever is talking or at the face it sees, even from across the room.
+- **Notices who is around.** It sees when someone arrives or leaves. With several people, it looks at whoever is talking, turns to newcomers and glances at the others from time to time. When someone arrives it may greet them by name, with a "bom dia", "boa tarde" or "boa noite" depending on the time, without repeating itself every few minutes. It notices cats and dogs too, and keeps an eye on the cat when nobody else is around.
 - **Antennas controlled by your finger.** Point a finger and the antennas follow the movement.
 - **Emotions.** It expresses joy, surprise, sadness and other reactions with movements and sounds.
 - **Dances.** Ask it to dance and it picks a move (or you can request a specific one).

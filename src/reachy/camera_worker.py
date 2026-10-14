@@ -11,6 +11,7 @@ import os
 import platform
 import threading
 import time
+from dataclasses import replace
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
@@ -21,6 +22,7 @@ from reachy_mini.utils.interpolation import linear_pose_interpolation
 from reachy.face_recognizer import FaceRecognizer
 from reachy.finger_antenna_controller import FingerAntennaController
 from reachy.head_roll_controller import HeadRollController
+from reachy.presence import PET_STRONG_SCORE, Box, GazeSelector, PersonTracker, Track, bearing_to_image_x
 
 try:
     import cv2
@@ -50,6 +52,7 @@ class CameraWorker:
         antenna_finger_max_angle_deg: float = 28.0,
         face_recognizer: Optional[FaceRecognizer] = None,
         audio_doa_enabled: bool = True,
+        person_detector: Any = None,
     ) -> None:
         """Initialize camera worker dependencies and tracking state."""
         self.reachy_mini = reachy_mini
@@ -87,8 +90,13 @@ class CameraWorker:
         self._last_debug_log_ts = 0.0
         self._last_missing_frame_log_ts = 0.0
         self._missing_frame_since_ts: float | None = None
+        # Opt-in: with the robot attached, probing the PC webcam whenever a robot frame is late
+        # makes the two cameras alternate.
         self._allow_local_camera_fallback = bool(
-            platform.system() == "Windows" and self._debug_visual_window and cv2 is not None
+            platform.system() == "Windows"
+            and self._debug_visual_window
+            and cv2 is not None
+            and os.getenv("VISION_LOCAL_CAMERA_FALLBACK", "0").strip().lower() in ("1", "true", "yes", "on")
         )
         self._local_camera_capture = None
         self._local_camera_index: int | None = None
@@ -144,6 +152,22 @@ class CameraWorker:
         self._doa_target_yaw_rad: float | None = None
         self._doa_active_until: float = 0.0
 
+        # Person detection: follow people too far away for the face tracker and choose whom to look at.
+        self._person_detector = person_detector if getattr(person_detector, "available", False) else None
+        self._person_lock = threading.Lock()
+        self._person_tracker = PersonTracker()
+        self._pet_trackers = self._new_pet_trackers()
+        self._last_person_log_ts = 0.0
+        self._speaking_track: tuple[int, float] | None = None  # (track id, when) of the person the voice came from
+        self._speaker_face_certain = True  # False when the last speaker ID had to guess among several faces
+        self._gaze = GazeSelector()
+        self._gaze_target: Optional[Box] = None
+        self._person_update_ts = 0.0
+        self._person_aspect = 16 / 9  # frame width/height, to place heads inside normalized boxes
+        self._person_period_s = 0.25
+        self._person_thread: threading.Thread | None = None
+        self._speaker_set_ts = 0.0
+
     def _configure_debug_window_environment(self) -> None:
         """Prepare Qt env vars to reduce noisy warnings in OpenCV debug windows."""
         if not self._debug_visual_window:
@@ -195,6 +219,7 @@ class CameraWorker:
         with self._speaker_lock:
             self._current_speaker = name
             self._speaker_hold_until = time.time() + hold_s
+            self._speaker_set_ts = time.time()
 
     def identify_current_speaker(self, wait_s: float = 0.8, update: bool = True) -> tuple[str | None, float]:
         """Activate DOA steering, wait for head to turn, then identify speaker.
@@ -206,6 +231,7 @@ class CameraWorker:
         if self._face_recognizer is None or not self._face_recognizer.available:
             return None, 0.0
 
+        asked_at = time.time()
         if self._audio_doa is not None:
             self._activate_doa_steering(duration_s=max(wait_s + 1.0, 2.5))
 
@@ -215,8 +241,25 @@ class CameraWorker:
         if frame is None:
             return None, 0.0
 
-        name, confidence = self._face_recognizer.identify(frame)
-        logger.info("Speaker ID: %s (similarity=%.2f)", name, confidence)
+        # With several people the largest face may not be the one talking: use the person the voice comes from.
+        people, speaking_box = 0, None
+        with self._person_lock:
+            if time.time() - self._person_update_ts < 2.0:
+                verified = self._person_tracker.verified()
+                people = len(verified)
+                if self._speaking_track is not None and self._speaking_track[1] >= asked_at:
+                    speaking_box = next((t.box for t in verified if t.id == self._speaking_track[0]), None)
+        crop = self._head_crop(frame, speaking_box) if people > 1 and speaking_box is not None else None
+        result = self._face_recognizer.identify_face(crop) if crop is not None else None
+        if result is not None:
+            name, confidence = result
+        else:
+            name, confidence = self._face_recognizer.identify(frame)
+        self._speaker_face_certain = people <= 1 or result is not None
+        logger.info(
+            "Speaker ID: %s (similarity=%.2f%s)",
+            name, confidence, "" if self._speaker_face_certain else f", {people} people, unsure who talks",
+        )
 
         if update:
             with self._speaker_lock:
@@ -274,11 +317,218 @@ class CameraWorker:
         except Exception as exc:
             logger.debug("Background face identification failed: %s", exc)
 
+    def get_presence(self) -> list[tuple[int, Optional[str], float]]:
+        """Return the people in view as (track id, recognized name or None, confirmed timestamp)."""
+        if self._person_detector is None:
+            return []
+        with self._person_lock:
+            if time.time() - self._person_update_ts > 2.0:
+                return []
+            return [(t.id, t.name, t.confirmed_at or t.first_seen) for t in self._person_tracker.verified()]
+
+    @staticmethod
+    def _new_pet_trackers() -> dict[str, PersonTracker]:
+        """One tracker per pet kind; ids are offset so the gaze never confuses a pet with a person."""
+        return {"cat": PersonTracker(PET_STRONG_SCORE, 10_000), "dog": PersonTracker(PET_STRONG_SCORE, 20_000)}
+
+    def get_pets(self) -> list[str]:
+        """Return the label of each pet in view ("cat", "dog")."""
+        if self._person_detector is None:
+            return []
+        with self._person_lock:
+            if time.time() - self._person_update_ts > 2.0:
+                return []
+            return [label for label, tracker in self._pet_trackers.items() for _ in tracker.verified()]
+
+    def _person_loop(self) -> None:
+        """Detect people a few times per second, keep tracks, pick the gaze target and name tracks by face."""
+        while not self._stop_event.is_set():
+            started = time.time()
+            with self.frame_lock:
+                frame = self.latest_frame
+            if frame is not None:
+                try:
+                    self._update_persons(frame, started)
+                except Exception as exc:
+                    logger.debug("Person update failed: %s", exc)
+            self._stop_event.wait(max(0.02, self._person_period_s - (time.time() - started)))
+
+    def _update_persons(self, frame: NDArray[np.uint8], now: float) -> None:
+        detections = self._person_detector.detect(frame)  # type: ignore[union-attr]
+        self._person_aspect = frame.shape[1] / float(frame.shape[0])
+        people = [d for d in detections if d.label == "person"]
+        pets = {label: [d for d in detections if d.label == label] for label in self._pet_trackers}
+        speech_x = self._speech_image_x(now)
+        with self._speaker_lock:
+            speaker = self._current_speaker if now - self._speaker_set_ts < 20.0 else None
+        with self._person_lock:
+            confirmed = self._person_tracker.update([d.box for d in people], now, [d.score for d in people])
+            verified = [t for t in confirmed if self._person_tracker.is_verified(t)]
+            pet_tracks = []
+            for label, tracker in self._pet_trackers.items():
+                tracker.update([d.box for d in pets[label]], now, [d.score for d in pets[label]])
+                pet_tracks += tracker.verified()
+            # Nobody around: keep an eye on the cat.
+            if speech_x is not None and verified:
+                nearest = min(verified, key=lambda t: abs(t.box.center_x - speech_x))
+                if abs(nearest.box.center_x - speech_x) < 0.35:
+                    self._speaking_track = (nearest.id, now)
+            target = self._gaze.choose(verified or pet_tracks, now, speaker_name=speaker, speech_x=speech_x)
+            self._gaze_target = None if target is None else target.box
+            self._person_update_ts = now
+            to_identify = self._next_track_to_identify(confirmed, now, target)
+        if to_identify is not None:
+            self._identify_track(frame, *to_identify)
+        if now - self._last_person_log_ts >= 2.0 and logger.isEnabledFor(logging.DEBUG):
+            self._last_person_log_ts = now
+            with self._person_lock:
+                tracks = [
+                    f"#{t.id}{'' if self._person_tracker.is_verified(t) else '?'} {t.name or '-'} "
+                    f"score={t.score:.2f} face={t.face_seen} h={t.box.height:.2f}"
+                    for t in self._person_tracker.tracks
+                ]
+            logger.debug(
+                "Persons raw=%s tracks=[%s] pets=%s",
+                [round(d.score, 2) for d in people],
+                "; ".join(tracks),
+                [f"{d.label}:{d.score:.2f}" for group in pets.values() for d in group],
+            )
+
+    def _speech_image_x(self, now: float) -> Optional[float]:
+        """Image x the current voice direction maps to, while DOA steering is active."""
+        doa_yaw = self._doa_target_yaw_rad
+        if doa_yaw is None or now >= self._doa_active_until:
+            return None
+        with self.face_tracking_lock:
+            head_yaw = self.face_tracking_offsets[5]
+        return bearing_to_image_x(doa_yaw, head_yaw)
+
+    def _next_track_to_identify(self, tracks: list[Track], now: float, target: Optional[Track]) -> Optional[tuple[int, Box]]:
+        """Pick one visible unnamed track whose face-ID retry is due (fewest attempts, then the gaze target)."""
+        if self._face_recognizer is None or not self._face_recognizer.available:
+            return None
+        due = [
+            t for t in tracks
+            if t.name is None and t.last_seen == now
+            and now - t.last_id_attempt >= (2.5 if t.id_attempts < 6 else 10.0)
+        ]
+        if not due:
+            return None
+        track = min(due, key=lambda t: (t.id_attempts, t is not target, -t.box.height))
+        track.id_attempts += 1
+        track.last_id_attempt = now
+        return track.id, track.box
+
+    def _identify_track(self, frame: NDArray[np.uint8], track_id: int, box: Box) -> None:
+        """Run face recognition on the head region of one person box."""
+        crop = self._head_crop(frame, box)
+        if crop is None:
+            return
+        result = self._face_recognizer.identify_face(crop)  # type: ignore[union-attr]
+        if result is None:
+            return
+        name, score = result
+        with self._person_lock:
+            tracks = self._person_tracker.tracks
+            track = next((t for t in tracks if t.id == track_id), None)
+            if track is None:
+                return
+            track.face_seen = True
+            if name == FaceRecognizer.UNKNOWN:
+                return
+            for other in tracks:
+                if other is not track and other.name == name:
+                    if other.name_score >= score:
+                        return  # the same face can't be in two places; keep the better match
+                    other.name = None
+            track.name, track.name_score = name, score
+        logger.info("Person %d identified as %s (similarity=%.2f)", track_id, name, score)
+
+    @staticmethod
+    def _head_crop(frame: NDArray[np.uint8], box: Box) -> Optional[NDArray[np.uint8]]:
+        """Head region of one person box, or None when too small to hold a face."""
+        h, w = frame.shape[:2]
+        region = box.head_box(w / float(h))
+        x0, x1 = int(max(0.0, region.x0) * w), int(min(1.0, region.x1) * w)
+        y0, y1 = int(max(0.0, region.y0) * h), int(min(1.0, region.y1) * h)
+        if x1 - x0 < 24 or y1 - y0 < 24:
+            return None
+        return frame[y0:y1, x0:x1]
+
+    @property
+    def speaker_face_certain(self) -> bool:
+        """False when the last speaker ID saw several people and could not tell which one was talking."""
+        return self._speaker_face_certain
+
+    def get_enrollment_view(self) -> tuple[list[Track], Optional[int], Optional[NDArray[np.uint8]]]:
+        """People in view (copies, left to right), the track id of whoever is talking, and the latest frame."""
+        frame = self.get_latest_frame()
+        now = time.time()
+        with self._speaker_lock:
+            speaker = self._current_speaker if now - self._speaker_set_ts < 30.0 else None
+        with self._person_lock:
+            if self._person_detector is None or now - self._person_update_ts > 2.0:
+                return [], None, frame
+            people = sorted((replace(t) for t in self._person_tracker.verified()), key=lambda t: t.box.center_x)
+            speaker_id = None
+            if speaker and speaker != FaceRecognizer.UNKNOWN:
+                named = [t.id for t in people if t.name == speaker]
+                speaker_id = named[0] if len(named) == 1 else None
+            if speaker_id is None and self._speaking_track is not None and now - self._speaking_track[1] < 30.0:
+                speaker_id = self._speaking_track[0]
+        return people, speaker_id, frame
+
+    def capture_track_faces(self, track_id: int, count: int = 4, interval_s: float = 0.35) -> list[NDArray[np.uint8]]:
+        """Head crops of one person over a few frames, following the track as they move."""
+        crops = []
+        for index in range(count):
+            if index:
+                time.sleep(interval_s)
+            frame = self.get_latest_frame()
+            with self._person_lock:
+                box = next((t.box for t in self._person_tracker.tracks if t.id == track_id), None)
+            if frame is None or box is None:
+                continue
+            crop = self._head_crop(frame, box)
+            if crop is not None:
+                crops.append(crop.copy())
+        return crops
+
+    def name_track(self, track_id: int, name: str) -> None:
+        """Label a track right after enrolling it, so presence and gaze know who it is."""
+        with self._person_lock:
+            for track in self._person_tracker.tracks:
+                if track.id == track_id:
+                    track.name, track.name_score, track.face_seen = name, 1.0, True
+                elif track.name == name:
+                    track.name = None
+
+    def _choose_tracking_target(
+        self, face_target: Optional[Tuple[np.ndarray, float]], now: float
+    ) -> Optional[Tuple[np.ndarray, float]]:
+        """Combine the face tracker with person boxes: faces are precise, person boxes reach farther."""
+        speech_x = self._speech_image_x(now)
+        if speech_x is not None and not -0.15 <= speech_x <= 1.15:
+            return None  # someone is talking well outside the view: let DOA turn the head
+        with self._person_lock:
+            box = self._gaze_target if now - self._person_update_ts < 1.0 else None
+        if box is None:
+            return face_target
+        if face_target is not None:
+            fx, fy = (np.asarray(face_target[0], dtype=np.float32) + 1.0) / 2.0
+            if box.x0 - 0.05 <= fx <= box.x1 + 0.05 and box.y0 - 0.05 <= fy <= box.y1 + 0.05:
+                return face_target
+        hx, hy = box.head_point(self._person_aspect)
+        return (np.array([2.0 * hx - 1.0, 2.0 * hy - 1.0], dtype=np.float32), 0.0)
+
     def start(self) -> None:
         """Start the camera worker thread."""
         self._stop_event.clear()
         self._thread = threading.Thread(target=self.working_loop, daemon=True)
         self._thread.start()
+        if self._person_detector is not None:
+            self._person_thread = threading.Thread(target=self._person_loop, daemon=True)
+            self._person_thread.start()
         logger.debug("Camera worker started")
 
     def stop(self) -> None:
@@ -286,6 +536,14 @@ class CameraWorker:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
+        if self._person_thread is not None:
+            self._person_thread.join(timeout=3.0)
+            self._person_thread = None
+        with self._person_lock:  # people seen before sleeping are stale after waking up
+            self._person_tracker = PersonTracker()
+            self._pet_trackers = self._new_pet_trackers()
+            self._gaze_target = None
+            self._person_update_ts = 0.0
         self._close_local_camera_fallback()
         self._finger_antenna_controller.close()
         if self._debug_visual_window and cv2 is not None:
@@ -365,7 +623,9 @@ class CameraWorker:
                     self.previous_head_tracking_state = self.is_head_tracking_enabled
 
                     if self.is_head_tracking_enabled and should_run_tracking:
-                        tracking_target = self._get_tracking_target(tracking_frame)
+                        tracking_target = self._choose_tracking_target(
+                            self._get_tracking_target(tracking_frame), current_time
+                        )
                         eye_center = None if tracking_target is None else tracking_target[0]
                         head_tilt_rad = 0.0 if tracking_target is None else float(tracking_target[1])
                         eye_center = self._stabilize_eye_center(eye_center)
@@ -781,8 +1041,11 @@ class CameraWorker:
         if not self._debug_visual_window or cv2 is None or self._debug_window_failed:
             return
         try:
-            vis = np.zeros((360, 640, 3), dtype=np.uint8)
             elapsed = 0.0 if self._missing_frame_since_ts is None else max(0.0, current_time - self._missing_frame_since_ts)
+            if self.latest_frame is not None and elapsed < 2.0:
+                cv2.waitKey(1)  # a late frame is normal: keep the last image instead of flashing the placeholder
+                return
+            vis = np.zeros((360, 640, 3), dtype=np.uint8)
             cv2.putText(
                 vis,
                 "Reachy Vision Debug",
@@ -838,6 +1101,29 @@ class CameraWorker:
             h, w = vis.shape[:2]
             center = (w // 2, h // 2)
             cv2.drawMarker(vis, center, (255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=1)
+
+            with self._person_lock:
+                people = [
+                    (t.box, t.name, t.box == self._gaze_target, self._person_tracker.is_verified(t), t.score, t.face_seen)
+                    for t in self._person_tracker.confirmed()
+                ]
+                pets = [
+                    (t.box, label, t.box == self._gaze_target, t.score)
+                    for label, tracker in self._pet_trackers.items()
+                    for t in tracker.verified()
+                ]
+            for box, label, is_target, score in pets:
+                color = (0, 200, 255) if is_target else (0, 220, 120)
+                p0, p1 = (int(box.x0 * w), int(box.y0 * h)), (int(box.x1 * w), int(box.y1 * h))
+                cv2.rectangle(vis, p0, p1, color, 2)
+                cv2.putText(vis, f"{label} {score:.2f}", (p0[0] + 4, p0[1] + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+            for box, name, is_target, verified, score, face_seen in people:
+                # orange = gaze target, blue = person, gray = unverified (no face yet, weak score)
+                color = (0, 200, 255) if is_target else (200, 120, 0) if verified else (140, 140, 140)
+                p0, p1 = (int(box.x0 * w), int(box.y0 * h)), (int(box.x1 * w), int(box.y1 * h))
+                cv2.rectangle(vis, p0, p1, color, 2)
+                label = f"{name or '?'} {score:.2f}{' face' if face_seen else ''}"
+                cv2.putText(vis, label, (p0[0] + 4, p0[1] + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
 
             if self._last_target_pixels is not None:
                 tx, ty = self._last_target_pixels

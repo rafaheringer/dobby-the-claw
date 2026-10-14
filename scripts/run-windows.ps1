@@ -1,6 +1,7 @@
 # run-windows.ps1 - Sobe tunel SSH (OpenClaw/HA no Raspberry Pi), daemon do Reachy e o bridge Dobby neste PC.
-# Uso: powershell -ExecutionPolicy Bypass -File scripts\run-windows.ps1 [-Mode realtime|chat|tui]
-param([string]$Mode = "realtime", [string]$Pi = "dobby@192.168.68.56")
+# Uso: powershell -ExecutionPolicy Bypass -File scripts\run-windows.ps1 [-Mode realtime|chat|tui] [-DebugView]
+#   -DebugView: abre a janela de video com as deteccoes e loga em DEBUG.
+param([string]$Mode = "realtime", [string]$Pi = "dobby@192.168.68.56", [switch]$DebugView)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -37,5 +38,24 @@ Get-Content (Join-Path $root ".env") | ForEach-Object {
 }
 $env:PYTHONPATH = "."
 $env:PYTHONIOENCODING = "utf-8"
+if ($DebugView) {
+    $env:VISION_DEBUG_WINDOW = "1"
+    $env:BRIDGE_LOG_LEVEL = "DEBUG"
+}
 Set-Location (Join-Path $root "src")
-& (Join-Path $root ".venv\Scripts\python.exe") -m bridge.main --mode $Mode
+$python = Join-Path $root ".venv\Scripts\python.exe"
+if (-not $DebugView) {
+    & $python -m bridge.main --mode $Mode
+    return
+}
+
+# Modo debug: log em arquivo (bridge.log) acompanhado ao vivo neste terminal; Ctrl+C encerra o bridge.
+$log = Join-Path $logs "bridge.log"
+$bridge = Start-Process $python -ArgumentList "-m", "bridge.main", "--mode", $Mode -NoNewWindow -PassThru `
+    -RedirectStandardError $log -RedirectStandardOutput (Join-Path $logs "bridge.out.log")
+try {
+    while (-not (Test-Path $log)) { Start-Sleep -Milliseconds 200 }
+    Get-Content $log -Wait -Encoding UTF8
+} finally {
+    if (-not $bridge.HasExited) { taskkill /T /F /PID $bridge.Id | Out-Null }
+}

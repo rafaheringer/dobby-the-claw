@@ -209,5 +209,6 @@ __marimo__/
 #Dobby stuff
 .dobby/
 
-# Downloaded speaker-embedding model
+# Downloaded models (speaker embedding, person detection)
 models/speaker/
+models/vision/

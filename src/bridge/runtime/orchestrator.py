@@ -28,7 +28,9 @@ from bridge.runtime.audio_support import (
     resolve_llm_api_key,
 )
 from homeassistant.home_assistant_client import HomeAssistantWsClient
+from bridge.runtime.bootstrap import load_prompt
 from bridge.runtime.common import apply_event
+from bridge.runtime.presence_notices import PresenceNotifier
 from bridge.runtime.speaker_id import MicRingBuffer, fuse_speaker
 from bridge.runtime.ports import (
     ConversationCallbacks,
@@ -126,6 +128,11 @@ class RuntimeOrchestrator:
                 self._mic_buffer = MicRingBuffer()
 
         self._notification_queue: "Queue[str]" = Queue()
+
+        self._presence: PresenceNotifier | None = None
+        self._last_presence_poll = 0.0
+        if config.presence_enabled and camera_worker is not None:
+            self._presence = PresenceNotifier(greet_cooldown_s=config.presence_greet_cooldown_s)
 
         self.tool_runtime = tool_runtime or build_tool_runtime(
             config,
@@ -305,6 +312,7 @@ class RuntimeOrchestrator:
 
                 self._reset_if_unanswered(now)
                 self._drain_notification_queue()
+                self._maybe_send_presence_notice(now)
 
                 time.sleep(0.01)
         finally:
@@ -343,6 +351,40 @@ class RuntimeOrchestrator:
         logging.info("[%dms] No reply to the last utterance; back to idle", self._elapsed_ms())
         apply_event(self.state_machine, Event.RESET, self.motion_manager)
 
+    def _maybe_send_presence_notice(self, now: float) -> None:
+        """Tell the model who arrived, was recognized or left, only while the conversation is quiet."""
+        if self._presence is None or self.camera_worker is None or self.realtime is None:
+            return
+        if now - self._last_presence_poll < 0.5:
+            return
+        self._last_presence_poll = now
+        wall = time.time()  # camera tracks are stamped with wall-clock time
+        self._presence.observe(
+            [(name, since) for _, name, since in self.camera_worker.get_presence()],
+            wall,
+            pets=self.camera_worker.get_pets(),
+        )
+        notice = self._presence.pending(wall)
+        if notice is None:
+            return
+        if notice.text:
+            last_event = max(self.last_user_activity, self._last_audio_chunk_ts, self._last_tool_call_ts)
+            busy = (
+                self.state_machine.state in (State.LISTENING, State.THINKING, State.DELEGATING, State.CONFIRMING)
+                or now - last_event < 3.0
+                or now < self._playback_end_ts + 1.0
+                or not self.audio_queue.empty()
+                or self.sleep_after_response.is_set()
+                or not self.realtime.wait_until_ready(timeout_s=0.0)
+            )
+            if busy:
+                return
+            logging.info("[%dms] Presence notice (respond=%s): %s", self._elapsed_ms(), notice.respond, notice.text)
+            # Not user activity: presence alone must not keep Dobby awake.
+            if not self.realtime.send_text(notice.text, respond=notice.respond):
+                return
+        self._presence.commit(notice, wall)
+
     def _mark_user_activity(self) -> None:
         """Record the latest user activity timestamp for idle-sleep logic."""
         self.last_user_activity = time.monotonic()
@@ -373,9 +415,10 @@ class RuntimeOrchestrator:
             return  # interruption and transcript can both signal the same utterance
         try:
             from reachy.face_recognizer import FaceRecognizer
-            face_name, face_score = None, 0.0
+            face_name, face_score, face_certain = None, 0.0, True
             if self.camera_worker is not None:
                 face_name, face_score = self.camera_worker.identify_current_speaker(wait_s=0.4, update=False)
+                face_certain = self.camera_worker.speaker_face_certain
                 logging.info(
                     "[%dms] Turn face: %s %.2f after %.1fs",
                     self._elapsed_ms(), face_name, face_score, time.monotonic() - speech_ts,
@@ -409,7 +452,8 @@ class RuntimeOrchestrator:
                 face_name, face_score,
                 {n: round(v, 2) for n, v in voice_scores.items()} if voice_scores is not None else "n/a",
             )
-            if decision.learn_voice_as and emb is not None:
+            # With several faces and no clear voice direction the face may belong to someone silent.
+            if decision.learn_voice_as and emb is not None and face_certain:
                 self._voice.add_sample(decision.learn_voice_as, emb)  # type: ignore[union-attr]
             if decision.name is not None:
                 self._set_turn_speaker(decision.name)
@@ -423,6 +467,8 @@ class RuntimeOrchestrator:
         from reachy.face_recognizer import FaceRecognizer
         if self.camera_worker is not None:
             self.camera_worker.set_current_speaker(name, hold_s=20.0)
+        if self._presence is not None:
+            self._presence.mark_greeted(None if name == FaceRecognizer.UNKNOWN else name, time.time())
         if name == self._current_speaker:
             return
         self._current_speaker = name
@@ -604,7 +650,9 @@ class RuntimeOrchestrator:
             if name == "enroll_speaker":
                 output = getattr(result, "output", None)
                 enrolled_name = str(arguments.get("name", "")).strip()
-                if isinstance(output, dict) and output.get("ok") and enrolled_name:
+                # Someone introduced by another person may not have spoken yet: their voice is learned
+                # later, when their face is recognized while they talk.
+                if isinstance(output, dict) and output.get("ok") and enrolled_name and output.get("voice_from_turn"):
                     self._current_speaker = enrolled_name
                     if self.camera_worker is not None:
                         self.camera_worker.set_current_speaker(enrolled_name, hold_s=20.0)
@@ -620,6 +668,8 @@ class RuntimeOrchestrator:
         ha_section = self._build_ha_catalog_section()
         speaker_section = self._build_speaker_section()
         identity = self.identity_prompt_runtime + ha_section + speaker_section
+        if self._presence is not None:
+            identity += "\n\n" + load_prompt("presence.md")
 
         callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
@@ -658,6 +708,8 @@ class RuntimeOrchestrator:
         self.wakeword.reset()
         self.wakeword.start_auto_calibration()
         self._mark_user_activity()
+        if self._presence is not None:
+            self._presence.reset(time.time())  # new session: whoever is in view is context, not a greeting
 
     def _enter_sleep_mode(self) -> None:
         """Stop active session and place runtime into wakeword-only sleep mode."""

@@ -15,6 +15,7 @@ from reachy.camera_worker import CameraWorker
 from reachy.client import ReachyClient
 from reachy.face_recognizer import FaceRecognizer
 from reachy.motion import MotionManager
+from reachy.person_detector import PersonDetector
 
 
 def _build_head_tracker() -> Any:
@@ -82,6 +83,7 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
             reachy_sdk_instance = reachy.get_sdk_instance()
             if needs_video:
                 head_tracker = _build_head_tracker()
+                person_detector = PersonDetector(config.person_detector_model) if config.presence_enabled else None
                 camera_worker = CameraWorker(
                     reachy_sdk_instance,
                     head_tracker=head_tracker,
@@ -92,6 +94,7 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                     antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,
                     antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
                     face_recognizer=face_recognizer,
+                    person_detector=person_detector,
                 )
             else:
                 logging.info(

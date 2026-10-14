@@ -22,5 +22,6 @@
       "Bash(Get-Content *)",
       "Bash(git *)"
     ]
-  }
+  },
+  "outputStyle": "Concise"
 }

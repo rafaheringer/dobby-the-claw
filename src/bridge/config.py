@@ -105,6 +105,9 @@ class BridgeConfig:
     gemini_proactive_audio: bool = True
     voice_id_enabled: bool = True
     voice_id_model_path: str = ""
+    presence_enabled: bool = True
+    person_detector_model: str = ""
+    presence_greet_cooldown_s: float = 10800.0
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -201,4 +204,7 @@ class BridgeConfig:
             gemini_proactive_audio=_env_flag("GEMINI_PROACTIVE_AUDIO", True),
             voice_id_enabled=_env_flag("VOICE_ID_ENABLED", True),
             voice_id_model_path=os.getenv("VOICE_ID_MODEL_PATH", "").strip(),
+            presence_enabled=_env_flag("PRESENCE_ENABLED", True),
+            person_detector_model=os.getenv("PERSON_DETECTOR_MODEL", "").strip(),
+            presence_greet_cooldown_s=float(os.getenv("PRESENCE_GREET_COOLDOWN_S", "10800")),
         )
