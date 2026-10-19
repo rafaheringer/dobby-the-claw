@@ -60,8 +60,9 @@ shop.sh email  "from:amazon newer_than:10m"   # texto completo do mais recente (
   desafio anti-robô "Press & Hold": **não tente resolver**, peça ao usuário para resolver pela tela
   remota (VNC do Pi) e espere.
 - **Mercado Livre:** login com "Continuar com o Google" (conta de e-mail das compras) e código do autenticador
-  (`"Mercado Livre" otp`). O cartão ainda **não** está salvo: na primeira compra preencha no checkout
-  com os comandos acima e marque para salvar. Verificação de identidade só por WhatsApp — nunca SMS.
+  (`"Mercado Livre" otp`). Cartão, endereço e dados de faturamento já salvos. Itens "Enviado pelo
+  FULL" costumam ter frete grátis; vendedores comuns podem cobrar frete alto, então confira o total.
+  Verificação de identidade só por WhatsApp — nunca SMS.
 
 ## Limites
 
