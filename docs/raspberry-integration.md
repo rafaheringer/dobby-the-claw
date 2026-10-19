@@ -180,6 +180,113 @@ http://127.0.0.1:18789/#token=<your-gateway-token>
 
 After the first successful connection, the device identity is stored in the browser's IndexedDB and subsequent connections in regular windows work without the fragment.
 
+### Browser and shopping (Amazon, iFood, Mercado Livre)
+
+OpenClaw shops with Dobby's own store accounts through its `browser` tool, driving a real
+Chromium on a virtual display. Secrets (passwords, authenticator codes, the virtual card) live in
+1Password and are typed straight into the page by a helper, so they never enter the model context.
+The skill is versioned in [`openclaw/skills/compras/`](../openclaw/skills/compras/).
+
+**Chromium** — Ubuntu's `chromium` is a snap, which OpenClaw can't drive; use the xtradeb PPA
+`.deb`, pinned so only Chromium comes from that PPA and the snap never comes back:
+
+```bash
+sudo add-apt-repository ppa:xtradeb/apps
+sudo tee /etc/apt/preferences.d/xtradeb-chromium <<'EOF'
+Package: *
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 100
+
+Package: chromium*
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 700
+EOF
+sudo apt install chromium
+```
+
+**Virtual display** — the stores block headless browsers, so Chromium runs headed on Xvfb.
+`/etc/systemd/system/xvfb.service`:
+
+```ini
+[Unit]
+Description=Xvfb virtual display :99 (OpenClaw browser)
+After=network.target
+
+[Service]
+User=dobby
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1366x900x24 -nolisten tcp
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+And a drop-in for the gateway, `/etc/systemd/system/openclaw.service.d/display.conf`:
+
+```ini
+[Unit]
+Wants=xvfb.service
+After=xvfb.service
+
+[Service]
+Environment="DISPLAY=:99"
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now xvfb && sudo systemctl restart openclaw
+```
+
+**OpenClaw config** (`~/.openclaw/openclaw.json`). Don't use CDP port 18800 — it's the bridge's
+notification server:
+
+```json
+"browser": {
+  "enabled": true, "headless": false, "noSandbox": false,
+  "executablePath": "/usr/bin/chromium", "defaultProfile": "compras",
+  "profiles": { "compras": { "cdpPort": 18810 }, "openclaw": { "cdpPort": 18811 } }
+},
+"plugins": { "entries": { "browser": { "enabled": true } } },
+"tools": { "alsoAllow": ["browser"] }
+```
+
+**1Password** — install the CLI from the official apt repo (`1password-cli`, arm64). In the
+1Password web app (a *Families* member account has no Developer section — use the organizer
+account), create a vault `Dobby Vault` with the items `Credit Card`, `Amazon` and `Mercado Livre`
+(logins with a *one-time password* field), and a **service account** limited to that vault.
+Read access is enough: authenticator secrets are added by scanning the store's QR code with the
+1Password app. Put the token on the Pi without pasting it anywhere else:
+
+```bash
+mkdir -m 700 -p ~/.config/op
+echo 'OP_SERVICE_ACCOUNT_TOKEN=ops_...' > ~/.config/op/dobby.env && chmod 600 ~/.config/op/dobby.env
+```
+
+**Skill** — copy it into the OpenClaw workspace and check it shows as ready. The buyer's name,
+delivery address and card ending go in the workspace `USER.md` under "Compras" (kept off this
+public repo):
+
+```bash
+scp -r openclaw/skills/compras dobby@192.168.68.56:.openclaw/workspace/skills/
+ssh dobby@192.168.68.56 'chmod 700 ~/.openclaw/workspace/skills/compras/scripts/*; openclaw skills list | grep compras'
+```
+
+E-mail verification codes are read from Dobby's Gmail with the OAuth credentials saved by the
+Google Workspace MCP server (`~/.google_workspace_mcp/credentials/`).
+
+**Bot challenges** — iFood sometimes shows a "Press & Hold" human check. Don't automate it; let a
+person solve it on the Pi's screen through noVNC, bound to localhost and reached over SSH:
+
+```bash
+sudo apt install x11vnc novnc python3-websockify
+# On the Pi
+(setsid x11vnc -display :99 -localhost -rfbport 5900 -nopw -shared -forever -quiet &)
+(setsid websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 &)
+# On the dev machine, then open http://localhost:6080/vnc.html?autoconnect=1&resize=scale
+ssh -N -L 6080:127.0.0.1:6080 dobby@192.168.68.56
+```
+
+Stop `x11vnc`/`websockify` when done, and never keep the screen shared while card fields are filled.
+
 ---
 
 ## Home Assistant

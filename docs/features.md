@@ -69,6 +69,7 @@ When a request is more complex than a quick chat, Dobby hands the work to OpenCl
 - Working with files, documents and spreadsheets on **Google Drive**.
 - Sending and reading **WhatsApp** messages.
 - Web research and long-running or **scheduled** tasks.
+- **Shopping** on Amazon, iFood and Mercado Livre with Dobby's own accounts and a limited virtual card. Before paying, it sends you a summary (items, total, delivery) and only buys after your "ok".
 
 The first task of the day can take about 30 seconds; later ones are usually faster. Meanwhile, Dobby stays available to chat.
 

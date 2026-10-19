@@ -127,6 +127,8 @@ No blocking work in any callback. Audio playback runs via `audio_queue`; motion 
 
 For full Raspberry Pi setup (hardware requirements, OpenClaw, Home Assistant, Reachy daemon, systemd service), see [`docs/raspberry-integration.md`](docs/raspberry-integration.md).
 
+Custom OpenClaw skills live in `openclaw/skills/` and are copied to `~/.openclaw/workspace/skills/` on the Pi (e.g. `compras`: shopping with 1Password-backed secrets). The repo is public — keep personal data (address, phone, card) in the Pi's workspace `USER.md`, never in the skill.
+
 ## Configuration
 
 All runtime config is via environment variables (see `.env.example`). Key variables:
