@@ -68,6 +68,8 @@ When a request is more complex than a quick chat, Dobby hands the work to OpenCl
 - Reading and drafting **emails**.
 - Working with files, documents and spreadsheets on **Google Drive**.
 - Sending and reading **WhatsApp** messages.
+- Joining **WhatsApp group chats** on his own: no need to tag him. He reads the conversation, chimes in with opinions, suggestions or useful info when he has something worth adding, stays quiet otherwise, and reacts to messages with emoji.
+- Reading and editing **Notion** pages, both through the Notion integration and by opening Notion in the browser with Dobby's own account (for layouts and features the integration doesn't cover). Pages must be shared with Dobby first.
 - Web research and long-running or **scheduled** tasks.
 - **Shopping** on Amazon, iFood and Mercado Livre with Dobby's own accounts and a limited virtual card. Before paying, it sends you a summary (items, total, delivery) and only buys after your "ok".
 
