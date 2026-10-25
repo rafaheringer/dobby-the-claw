@@ -56,3 +56,21 @@ def test_react_touch_does_not_wait_for_play_sound(tmp_path, monkeypatch):
             break
         time.sleep(0.02)
     assert played and played[0].endswith("relief1.wav")
+
+
+def test_awake_tap_has_no_sound_only_dobby_speaks(tmp_path, monkeypatch):
+    import bridge.runtime.adapters.reachy_actions as ra
+
+    for name in ("loving1", "surprised1", "relief1", "oops1"):
+        _write_wav(tmp_path / f"{name}.wav", 1.5)
+    monkeypatch.setattr(ra, "_QUIET_DIR", tmp_path / "quiet")
+    played = []
+
+    class _Client:
+        def get_sdk_instance(self):
+            return type("Sdk", (), {"media": type("M", (), {"play_sound": lambda _, p: played.append(p)})()})()
+
+    actions = ReachyRobotActions(_Client(), sound_dir=tmp_path)
+    assert actions.react_touch("tap", "start", asleep=False) == 0.0
+    actions._sound_worker.shutdown(wait=True)
+    assert played == []

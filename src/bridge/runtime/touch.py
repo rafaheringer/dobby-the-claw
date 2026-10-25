@@ -289,6 +289,7 @@ class TouchSpeechGate:
         """Store the minimum gap between spoken reactions of the same kind."""
         self._cooldown_s = cooldown_s
         self._last: dict[TouchKind, float] = {}
+        self._count: dict[TouchKind, int] = {}  # touches of each kind, spoken about or not
 
     def notice(self, event: TouchEvent, now: float) -> str | None:
         """Return the notice text for the model when `event` should be spoken about, else None."""
@@ -300,6 +301,8 @@ class TouchSpeechGate:
             text = "[toque] levou batidinhas na cabeça"
         else:
             return None
+        count = self._count[event.kind] = self._count.get(event.kind, 0) + 1
+        text += f" ({count}ª vez)"  # a hook for the model to vary what it says
         last = self._last.get(event.kind)
         if last is not None and now - last < self._cooldown_s:
             return None

@@ -58,7 +58,7 @@ def test_awake_pet_end_reacts_and_speaks_once():
     o = _orch([TouchEvent(TouchKind.PET_END, 10.0, 6.0)])
     o._observe_touch(SimpleNamespace(), 10.0)
     assert o.robot_actions.calls == [("pet", "end", False)]
-    assert o.realtime.sent == [("[toque] carinho de 6 s terminou", True)]
+    assert o.realtime.sent == [("[toque] carinho de 6 s terminou (1ª vez)", True)]
     assert o.last_user_activity == 10.0
 
 

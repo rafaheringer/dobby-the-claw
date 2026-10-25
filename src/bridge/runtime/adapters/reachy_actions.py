@@ -26,7 +26,6 @@ _EMOTIONS_DATASET = "pollen-robotics/reachy-mini-emotions-library"
 # (kind, asleep) -> emotion sound; asleep sounds are played quieter.
 _TOUCH_SOUNDS = {
     ("pet", False): "loving1",
-    ("tap", False): "surprised1",
     ("pet", True): "relief1",
     ("tap", True): "oops1",
 }

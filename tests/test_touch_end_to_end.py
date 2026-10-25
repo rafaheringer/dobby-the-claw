@@ -59,7 +59,7 @@ def test_tap_awake_startles_and_complains():
     o = _run("batidinha_noagc", sound_s=3.1)
     calls = o.robot_actions.calls
     assert calls and set(calls) == {("tap", "start", False)}  # later series fall in the sound
-    assert o.realtime.sent == ["[toque] levou batidinhas na cabeça"]  # then the cooldown
+    assert o.realtime.sent == ["[toque] levou batidinhas na cabeça (1ª vez)"]  # then the cooldown
 
 
 def test_barely_touching_never_startles():
