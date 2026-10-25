@@ -21,6 +21,8 @@ def _smooth(x: float) -> float:
 class PetMove(Move):
     """Lean into the hand: antennas drop back, head tilts and lifts, antennas sway until released."""
 
+    exclusive = True
+
     EASE_IN_S = 1.0
     EASE_OUT_S = 1.0
     ANTENNAS = np.array([-3.05, 3.05])  # folded back, as in the SDK sleep pose
@@ -67,6 +69,8 @@ class PetMove(Move):
 
 class TapMove(Move):
     """Startle: antennas flick up, head pulls back with a small shake, then back to neutral."""
+
+    exclusive = True
 
     DURATION_S = 1.2
     ATTACK_S = 0.1
