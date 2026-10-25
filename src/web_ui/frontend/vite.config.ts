@@ -4,9 +4,8 @@ import { defineConfig } from "vitest/config";
 import { VitePWA } from "vite-plugin-pwa";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
-export default defineConfig(({ mode }) => {
-  // `vite --mode mock` talks to dev/mock-bridge.mjs instead of the real bridge.
-  const BRIDGE = mode === "mock" ? "127.0.0.1:18901" : "127.0.0.1:18900";
+export default defineConfig(() => {
+  const BRIDGE = "127.0.0.1:18900";
   return {
   plugins: [
     react(),
@@ -24,8 +23,8 @@ export default defineConfig(({ mode }) => {
         start_url: "/",
         scope: "/",
         display: "standalone",
-        background_color: "#0f111b",
-        theme_color: "#0f111b",
+        background_color: "#ffffff",
+        theme_color: "#ffffff",
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
           { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },

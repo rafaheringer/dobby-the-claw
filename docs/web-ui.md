@@ -13,7 +13,7 @@ The page is a React + Vite app in `src/web_ui/frontend/` (routes `/`, `/conversa
 required on the PC). Without a build, the page explains which commands to run.
 
 For frontend work, `npm run dev` (hot reload on <http://localhost:5173>) proxies `/ws` and `/api` to the
-running bridge; `npm run mock` + `npm run dev:mock` use a fake bridge instead.
+running bridge.
 
 The 3D model is Pollen Robotics' `reachy_mini_viz.glb` (Apache-2.0, see
 `frontend/src/assets/robot/NOTICE.md`), Draco-compressed; its decoder is served from `/draco/`.

@@ -37,8 +37,6 @@ served by the bridge. `scripts/run-windows.ps1` runs `npm ci` / `npm run build` 
 cd src/web_ui/frontend
 npm ci && npm run build   # tsc + vitest + vite build
 npm run dev               # hot reload on :5173, proxies /ws and /api to the bridge on :18900
-npm run mock              # fake bridge on :18901 (when the real one is down) ...
-npm run dev:mock          # ... and the dev server pointed at it
 ```
 
 ### Docker (development hosts)
