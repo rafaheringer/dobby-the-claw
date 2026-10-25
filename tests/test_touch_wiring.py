@@ -73,10 +73,8 @@ def test_asleep_reacts_without_speaking_or_activity():
 
 def test_deaf_while_playing_and_muted_during_reaction_sound():
     o = _orch([TouchEvent(TouchKind.PET_START, 1.0)])
-    o.playback_started = True
-    o._observe_touch(SimpleNamespace(), 1.0)
-    o.playback_started = False
     o._playback_end_ts = 1.5
+    o._observe_touch(SimpleNamespace(), 1.0)
     o._observe_touch(SimpleNamespace(), 2.0)  # inside the 0.8 s tail
     o._observe_touch(SimpleNamespace(), 2.5)  # hears PET_START, sound lasts 2.0 s
     o._observe_touch(SimpleNamespace(), 4.0)  # reaction sound still playing
@@ -152,9 +150,19 @@ def test_interrupted_petting_restores_gain_once_dobby_is_quiet():
     o._observe_touch(SimpleNamespace(), 9.0)
     assert calls == []  # hand may still be on the head while Dobby talks
     o._touch.events = []
-    o.playback_started = True
+    o._playback_end_ts = 11.0
     o._observe_touch(SimpleNamespace(), 10.0)
     assert calls == []
-    o.playback_started = False
     o._observe_touch(SimpleNamespace(), 12.0)
     assert calls == [2.0]
+
+
+def test_hears_again_after_dobby_finished_speaking():
+    # playback_started stays True after a reply ends (it only flips on barge-in or sleep):
+    # only the queued audio's end time says whether Dobby is still speaking.
+    o = _orch([TouchEvent(TouchKind.PET_START, 30.0)])
+    o.playback_started = True
+    o._playback_end_ts = 20.0
+    o._observe_touch(SimpleNamespace(), 30.0)
+    assert o._touch.deaf_calls == [(False, False)]
+    assert o.robot_actions.calls == [("pet", "start", False)]

@@ -374,7 +374,8 @@ class RuntimeOrchestrator:
 
     def _observe_touch(self, sample: Any, now: float) -> None:
         """Feed the touch detector and react to petting/taps (sound only while asleep)."""
-        deaf = self.playback_started or now < self._playback_end_ts + 0.8
+        # Not playback_started: it stays True after a reply ends (it only flips on barge-in/sleep).
+        deaf = now < self._playback_end_ts + 0.8  # Dobby speaking (queued audio + echo tail)
         muted = now < self._touch_deaf_until  # our own reaction sound is playing
         events = self._touch.observe(self.input_sample_rate, sample, now, deaf=deaf, muted=muted)
         if self._touch_restore_pending and not deaf and not self._touch.petting:
