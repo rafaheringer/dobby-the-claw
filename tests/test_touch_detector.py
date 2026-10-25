@@ -159,3 +159,9 @@ def test_one_or_two_knocks_are_not_taps():
 def test_irregular_knocks_are_not_taps():
     # Typing next to the robot: uneven gaps.
     assert _feed(_knocks([1.0, 1.2, 1.75, 1.95, 2.5])) == []
+
+
+def test_hiss_bursts_are_not_touches():
+    # Nobody near the robot, a TV far away: two saturating bursts, mostly above 3 kHz.
+    # Touching the shell is a low thump or rub (under 1 kHz).
+    assert run("ruido_agudo", vad=SpeechVad()) == []

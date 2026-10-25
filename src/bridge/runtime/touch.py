@@ -2,7 +2,8 @@
 
 Petting right on the array saturates it (100 ms windows near -10 dBFS, clipped samples) while speech
 at a normal distance stays below about -22 dBFS; taps are short transients. Speech close to the head
-reaches the same level, so a voice activity detector masks it. Pure logic: the
+reaches the same level, so a voice activity detector masks it; loud hiss (mostly above 3 kHz) is not
+a touch either: rubbing or knocking on the shell stays under 1 kHz. Pure logic: the
 orchestrator feeds mic chunks and acts on the returned events.
 """
 
@@ -32,6 +33,8 @@ _TAP_CADENCE = 2.0  # every gap within this factor of the median gap: steady, un
 _TAP_AFTER_PET_S = 3.0  # stray hits right after petting are its tail, not taps
 _SPEECH_PROB = 0.5  # VAD probability above which a window is someone talking, not a touch
 _SPEECH_MASK_S = 0.5  # windows this long after speech are masked too (syllable gaps, plosives)
+_HISS_HZ = 3000.0
+_HISS_SHARE = 0.4  # touch windows keep ~1% of their energy above _HISS_HZ, hiss bursts ~60%
 
 
 class TouchKind(str, Enum):
@@ -170,8 +173,10 @@ class TouchDetector:
         if self._vad is not None and self._vad(window, sample_rate) >= _SPEECH_PROB:
             self._speech_until = at + _SPEECH_MASK_S
         talking = at < self._speech_until
-        loud = not talking and float(np.sqrt(np.mean(window**2))) > self._pet_rms
-        hit = loud or (not talking and float(np.max(np.abs(window))) >= self._tap_peak)
+        loud = float(np.sqrt(np.mean(window**2))) > self._pet_rms
+        hit = loud or float(np.max(np.abs(window))) >= self._tap_peak
+        if talking or (hit and _hiss_share(window, sample_rate) > _HISS_SHARE):
+            loud = hit = False
         self._run = self._run + 1 if loud else 0
         if loud:
             self._last_loud = at
@@ -214,6 +219,14 @@ class TouchDetector:
         assert self._pet_started_at is not None
         duration = at - self._pet_started_at
         return TouchEvent(TouchKind.PET_END, at, duration_s=duration, interrupted=interrupted)
+
+
+def _hiss_share(window: np.ndarray, sample_rate: int) -> float:
+    """Fraction of the window's energy above _HISS_HZ."""
+    power = np.abs(np.fft.rfft(window * np.hanning(len(window)))) ** 2
+    freqs = np.fft.rfftfreq(len(window), 1.0 / sample_rate)
+    total = float(power.sum())
+    return float(power[freqs > _HISS_HZ].sum()) / total if total > 0 else 0.0
 
 
 def _steady_series(knocks: list[float]) -> bool:
