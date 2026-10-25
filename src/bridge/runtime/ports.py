@@ -92,6 +92,10 @@ class RobotActionsPort(Protocol):
         """Re-energize all motors."""
         ...
 
+    def react_touch(self, kind: str, phase: str, asleep: bool) -> float:
+        """React to a touch (`pet`/`tap`, `start`/`end`); return the sound length started, in s."""
+        ...
+
 
 class ToolRuntimePort(Protocol):
     """Abstract tool runtime interface used by orchestration."""
