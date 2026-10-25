@@ -63,6 +63,13 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
 
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+
 @utility pt-safe {
   padding-top: env(safe-area-inset-top);
 }
