@@ -212,3 +212,6 @@ __marimo__/
 # Downloaded models (speaker embedding, person detection)
 models/speaker/
 models/vision/
+
+# Visual brainstorming companion
+.superpowers/
