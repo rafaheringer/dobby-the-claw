@@ -14,7 +14,6 @@ import re
 import threading
 import time
 from collections import deque
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import cv2
@@ -22,6 +21,7 @@ from aiohttp import WSMsgType, web
 
 from bridge.status_checks import check_service_up, get_pi_stats
 from web_ui.access import AccessPolicy, AccessVerifier, make_guard
+from web_ui.frontend_routes import FRONTEND_DIST, add_frontend_routes, warn_if_missing
 from web_ui.logbus import CATEGORIES, LogLine, redact
 
 if TYPE_CHECKING:
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STATIC = Path(__file__).parent / "static"
 _LOG_BACKLOG = 3000
 _MAX_CHAT_CHARS = 2000
 _MAX_STREAMS = 8  # viewers; dead ones are reaped by the transport check in the stream loop
@@ -269,18 +268,6 @@ def _flag(request: web.Request, name: str, default: bool = True) -> bool:
     return default if value is None else value not in ("0", "false")
 
 
-async def _index(request: web.Request) -> web.StreamResponse:
-    return web.FileResponse(_STATIC / "index.html", headers={"Cache-Control": "no-cache"})
-
-
-async def _manifest(request: web.Request) -> web.StreamResponse:
-    return web.FileResponse(_STATIC / "manifest.webmanifest", headers={"Content-Type": "application/manifest+json"})
-
-
-async def _service_worker(request: web.Request) -> web.StreamResponse:
-    return web.FileResponse(_STATIC / "sw.js", headers={"Content-Type": "text/javascript", "Cache-Control": "no-cache"})
-
-
 async def _ws(request: web.Request) -> web.StreamResponse:
     hub: Hub = request.app["hub"]
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=64 * 1024)
@@ -355,19 +342,9 @@ async def _video(request: web.Request) -> web.StreamResponse:
 def build_app(hub: Hub, policy: AccessPolicy) -> web.Application:
     app = web.Application(middlewares=[make_guard(AccessVerifier(policy))])
     app["hub"] = hub
-
-    async def revalidate_static(request: web.Request, response: web.StreamResponse) -> None:
-        # Without this browsers keep an old app.js for hours and the page stops matching the server.
-        if request.path.startswith("/static/"):
-            response.headers["Cache-Control"] = "no-cache"
-
-    app.on_response_prepare.append(revalidate_static)
-    app.router.add_get("/", _index)
-    app.router.add_get("/manifest.webmanifest", _manifest)
-    app.router.add_get("/sw.js", _service_worker)
     app.router.add_get("/ws", _ws)
     app.router.add_get("/api/video", _video)
-    app.router.add_static("/static", _STATIC, follow_symlinks=False)
+    add_frontend_routes(app, FRONTEND_DIST)  # last: it catches every other path
     return app
 
 
@@ -381,6 +358,7 @@ def start_web_ui(orchestrator: "RuntimeOrchestrator", config: "BridgeConfig", lo
     )
     hub = Hub(orchestrator, config, log_queue)
     app = build_app(hub, policy)
+    warn_if_missing(FRONTEND_DIST)
 
     async def serve() -> None:
         runner = web.AppRunner(app, access_log=None)

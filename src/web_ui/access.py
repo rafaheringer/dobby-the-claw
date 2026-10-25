@@ -109,7 +109,9 @@ def make_guard(verifier: AccessVerifier):
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+            # wasm-unsafe-eval + blob workers: the Draco decoder of the 3D robot model (no JS eval).
+            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; "
+            "img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
             f"connect-src 'self' ws: wss:; frame-ancestors {ancestors}",
         )
         return response
