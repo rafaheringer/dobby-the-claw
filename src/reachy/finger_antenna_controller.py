@@ -29,6 +29,10 @@ except ImportError:  # pragma: no cover - optional dependency
 
 logger = logging.getLogger(__name__)
 
+# A hand spanning more than this fraction of the frame is reaching for the head (to pet it),
+# not pointing a finger: ignore it.
+_MAX_HAND_SPAN = 0.4
+
 @dataclass(frozen=True)
 class FingerAntennaControl:
     """Finger control state snapshot for antenna commands."""
@@ -211,6 +215,10 @@ class FingerAntennaController:
                     label = "unknown"
 
             landmarks = hand_landmarks.landmark
+            xs = [lm.x for lm in landmarks]
+            ys = [lm.y for lm in landmarks]
+            if max(max(xs) - min(xs), max(ys) - min(ys)) > _MAX_HAND_SPAN:
+                continue
             middle_finger_pip = landmarks[9]
             palm_center = self._norm((middle_finger_pip.x, middle_finger_pip.y))
 
