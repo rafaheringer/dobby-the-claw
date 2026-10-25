@@ -41,7 +41,8 @@ for the log list, `vite-plugin-pwa` (Workbox), Vitest.
 
 Chosen because it is the stack of Pollen Robotics' official app
 (`pollen-robotics/reachy-mini-desktop-app`, Apache-2.0), whose 3D viewer (`GLTFRobot`), robot
-model (`reachy_mini_viz.glb`, ~3 MB) and Controller widgets we adapt. Alternatives considered:
+model (`reachy_mini_viz.glb`, ~3 MB, Draco) we adapt, and whose Controller widgets we model ours
+on. Upstream commit: `5796d5b94f07cd889e955e3b9e785eafee1cac89`. Alternatives considered:
 SvelteKit + Threlte and Vue + TresJS (lighter, but no reuse of Pollen's code).
 
 ## Layout of the code
@@ -80,10 +81,14 @@ the Apache-2.0 license. The GLB gets a `NOTICE`/attribution entry next to it.
 - When `dist/` is missing, `/` returns a short HTML page saying the frontend must be built
   (`npm --prefix src/web_ui/frontend ci && npm --prefix src/web_ui/frontend run build`) and the
   bridge logs a warning once at startup.
-- WebSocket protocol, `/api/video`, the access guard and the CSP stay as they are. Everything
-  the frontend needs must fit `default-src 'self'; img-src 'self' data: blob:; style-src 'self'
-  'unsafe-inline'; connect-src 'self' ws: wss:` — no CDNs, no inline scripts, no Draco decoder
-  (the GLB is loaded without Draco), fonts self-hosted.
+- WebSocket protocol, `/api/video` and the access guard stay as they are.
+- CSP (`access.py`) gains exactly two directives, needed by the Draco decoder of Pollen's GLB
+  (WebAssembly compiled inside a Blob worker): `script-src 'self' 'wasm-unsafe-eval'` and
+  `worker-src 'self' blob:`. `'wasm-unsafe-eval'` allows compiling WebAssembly only, not JS
+  `eval`. Everything else must fit the existing policy: no CDNs, no inline scripts, fonts
+  self-hosted, Draco decoder files served from `/draco/` (copied from
+  `three/examples/jsm/libs/draco/gltf/` at build time). Re-encoding the GLB without Draco was
+  tried and rejected: 12.6 MB (5.7 MB gzip) and the optimizer pruned the skin.
 
 ## Build and run
 
@@ -186,12 +191,17 @@ interface RobotLink {
 }
 ```
 
-**`MockRobotLink`.** Auto mode: idle "alive" motion (breathing, antenna sway) and the head turns
-toward the current speaker when `status.speaker` changes (so it already reacts to real data).
+**`MockRobotLink`.** Auto mode: idle "alive" motion (breathing, antenna sway) and a short
+"atento" head tilt + antennas up when `status.speaker` changes to a new name (so it already
+reacts to real data; the status carries no speaker direction, so it does not turn toward them).
 Manual mode: controls move the pose locally with smoothing. Emotions: short keyframed moves
 (feliz, curioso, sono, surpreso). Sends nothing to the robot; `/twin` shows a "simulado" pill.
 
-**Controls on `/twin`** (adapted from Pollen's Controller widgets): 2D joystick (head yaw/pitch),
+**Head mode** hides every mesh that is not a descendant of the head bone `Core.001`
+(normalized `core001`), including the two skinned cables under `Armature`.
+
+**Controls on `/twin`** (modeled on Pollen's Controller widgets, rewritten on Radix + our glass
+styles because Pollen's are built on MUI): 2D joystick (head yaw/pitch),
 vertical slider (z), slider (roll), two circular sliders (antennas), one circular slider (body
 yaw), "Centralizar", "Emoções" menu, manual/auto toggle. Desktop keyboard: arrows/WASD for the
 joystick, Q/E roll, R/F height. Touching any control switches to manual.
