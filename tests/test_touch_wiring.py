@@ -42,8 +42,6 @@ def _orch(events, sleeping=False):
     o._touch_gate = TouchSpeechGate()
     o._touch_deaf_until = 0.0
     o._touch_quiet_until = 0.0
-    o._touch_agc_gain = 0.0
-    o._touch_restore_pending = False
     o.camera_worker = None
     o.robot_actions = _Actions()
     o.realtime = None if sleeping else _Realtime()
@@ -113,48 +111,6 @@ def test_presence_notice_deferred_while_touch_quiet():
     o._touch_quiet_until = 100.0
     o._maybe_send_presence_notice(50.0)
     assert o.realtime.sent == [] and o._presence.committed == []  # deferred, not absorbed
-
-
-def test_touch_end_restores_mic_gain():
-    calls = []
-    o = _orch([TouchEvent(TouchKind.PET_START, 1.0)])
-    o._touch_agc_gain = 2.0
-    o.camera_worker = SimpleNamespace(restore_mic_gain=calls.append)
-    o._observe_touch(SimpleNamespace(), 1.0)
-    assert calls == []
-    o._touch.events = [TouchEvent(TouchKind.PET_END, 9.0, 8.0)]
-    o._touch_deaf_until = 0.0
-    o._observe_touch(SimpleNamespace(), 9.0)
-    o._touch.events = [TouchEvent(TouchKind.TAP, 30.0)]
-    o._touch_deaf_until = 0.0
-    o._observe_touch(SimpleNamespace(), 30.0)
-    assert calls == [2.0, 2.0]
-
-
-def test_without_camera_worker_gain_is_restored_directly(monkeypatch):
-    import bridge.runtime.orchestrator as orch
-
-    calls = []
-    monkeypatch.setattr(orch, "restore_mic_gain", calls.append)
-    o = _orch([TouchEvent(TouchKind.TAP, 5.0)])
-    o._touch_agc_gain = 2.0
-    o._observe_touch(SimpleNamespace(), 5.0)
-    assert calls == [2.0]
-
-
-def test_interrupted_petting_restores_gain_once_dobby_is_quiet():
-    calls = []
-    o = _orch([TouchEvent(TouchKind.PET_END, 9.0, 8.0, interrupted=True)])
-    o._touch_agc_gain = 2.0
-    o.camera_worker = SimpleNamespace(restore_mic_gain=calls.append)
-    o._observe_touch(SimpleNamespace(), 9.0)
-    assert calls == []  # hand may still be on the head while Dobby talks
-    o._touch.events = []
-    o._playback_end_ts = 11.0
-    o._observe_touch(SimpleNamespace(), 10.0)
-    assert calls == []
-    o._observe_touch(SimpleNamespace(), 12.0)
-    assert calls == [2.0]
 
 
 def test_hears_again_after_dobby_finished_speaking():

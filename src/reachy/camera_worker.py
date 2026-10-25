@@ -6,7 +6,6 @@ estimate a face target, derive pose offsets with `look_at_image`,
 and smoothly interpolate back to neutral when tracking is lost.
 """
 
-import contextlib
 import logging
 import threading
 import time
@@ -49,46 +48,43 @@ def _open_respeaker() -> Any:
     return init_respeaker_usb()
 
 
-_MIC_GAIN_FLOOR = 0.2  # a collapsed AGC sits near 0.04; turning down a loud voice stays well above
 _MIC_GAIN_CHECK_S = 5.0
 
 
-def ensure_mic_gain(respeaker: Any, lock: threading.Lock, gain: float) -> bool:
-    """Write `gain` back when the AGC gain has collapsed (it does not recover by itself)."""
+def ensure_fixed_mic_gain(respeaker: Any, lock: threading.Lock, gain: float) -> bool:
+    """Keep the mic array AGC off at `gain`; True when something had to be changed.
+
+    The AGC drops the gain within ~100 ms of a hand touching the array (and never recovers), and
+    raises it up to 64x in a quiet room, so a TV or footsteps reach the petting level.
+    """
     with lock:
+        agc_on = any(respeaker.read("PP_AGCONOFF")[1:])  # status byte, then the int32 bytes
         current = float(respeaker.read("PP_AGCGAIN")[0])
-        if current >= _MIC_GAIN_FLOOR:
+        if not agc_on and abs(current - gain) < 0.01:
             return False
+        if agc_on:
+            respeaker.write("PP_AGCONOFF", [0])
         respeaker.write("PP_AGCGAIN", [float(gain)])
-    logger.info("Mic AGC gain had collapsed to %.3f; restored to %.1f", current, gain)
+    logger.info("Mic gain fixed at %.1f (AGC was %s, gain %.3f)", gain, "on" if agc_on else "off", current)
     return True
 
 
-def restore_mic_gain(
-    gain: float, respeaker: Any = None, lock: Optional[threading.Lock] = None
-) -> threading.Thread:
-    """Write the mic array AGC gain on a background thread.
+def apply_fixed_mic_gain(gain: float) -> threading.Thread:
+    """Fix the mic array gain on a background thread through a short-lived device handle."""
 
-    Petting saturates the array and the AGC drops its gain to near zero, then barely recovers in
-    silence. Without a `respeaker` handle a short-lived one is opened (and closed) for the write.
-    """
-
-    def _write() -> None:
-        handle = respeaker if respeaker is not None else _open_respeaker()
+    def _apply() -> None:
+        handle = _open_respeaker()
         if handle is None:
-            logger.warning("Mic AGC gain not restored: mic array control unavailable")
+            logger.warning("Fixed mic gain not applied: mic array control unavailable")
             return
         try:
-            with lock or contextlib.nullcontext():
-                handle.write("PP_AGCGAIN", [float(gain)])
-            logger.info("Mic AGC gain restored to %.1f", gain)
+            ensure_fixed_mic_gain(handle, threading.Lock(), gain)
         except Exception as exc:
-            logger.warning("Mic AGC gain not restored: %s", exc)
+            logger.warning("Fixed mic gain not applied: %s", exc)
         finally:
-            if respeaker is None:
-                handle.close()
+            handle.close()
 
-    thread = threading.Thread(target=_write, name="mic-gain-restore", daemon=True)
+    thread = threading.Thread(target=_apply, name="mic-fixed-gain", daemon=True)
     thread.start()
     return thread
 
@@ -107,7 +103,7 @@ class CameraWorker:
         face_recognizer: Optional[FaceRecognizer] = None,
         audio_doa_enabled: bool = True,
         person_detector: Any = None,
-        mic_gain_restore: float = 0.0,
+        mic_fixed_gain: float = 0.0,
     ) -> None:
         """Initialize camera worker dependencies and tracking state."""
         self.reachy_mini = reachy_mini
@@ -190,7 +186,7 @@ class CameraWorker:
         self._doa_lock = threading.Lock()  # one USB conversation with the mic array at a time
         self._doa_speech: deque[tuple[float, float]] = deque(maxlen=80)  # (time, angle) while speech is heard
         self._doa_thread: threading.Thread | None = None
-        self._mic_gain_restore = mic_gain_restore  # AGC watchdog target; 0 disables
+        self._mic_fixed_gain = mic_fixed_gain  # mic array gain kept with its AGC off; 0 leaves the AGC
 
         # Person detection: follow people too far away for the face tracker and choose whom to look at.
         self._person_detector = person_detector if getattr(person_detector, "available", False) else None
@@ -313,12 +309,12 @@ class CameraWorker:
         next_gain_check = 0.0
         while not self._stop_event.wait(0.12):
             respeaker = getattr(doa, "respeaker", None)
-            if self._mic_gain_restore > 0 and respeaker is not None and time.monotonic() >= next_gain_check:
+            if self._mic_fixed_gain > 0 and respeaker is not None and time.monotonic() >= next_gain_check:
                 next_gain_check = time.monotonic() + _MIC_GAIN_CHECK_S
                 try:
-                    ensure_mic_gain(respeaker, self._doa_lock, self._mic_gain_restore)
+                    ensure_fixed_mic_gain(respeaker, self._doa_lock, self._mic_fixed_gain)
                 except Exception as exc:
-                    logger.debug("Mic AGC gain check failed: %s", exc)
+                    logger.debug("Mic gain check failed: %s", exc)
             try:
                 with self._doa_lock:
                     reading = doa.get_DoA()
@@ -328,11 +324,6 @@ class CameraWorker:
                 continue
             if reading is not None and reading[1]:
                 self._doa_speech.append((time.time(), float(reading[0])))
-
-    def restore_mic_gain(self, gain: float) -> threading.Thread:
-        """Set the mic array AGC gain in the background, through the DoA handle when it is open."""
-        respeaker = getattr(self._audio_doa, "respeaker", None)
-        return restore_mic_gain(gain, respeaker=respeaker, lock=self._doa_lock)
 
     def _recent_speech_angle(self, window_s: float = 4.0) -> Optional[float]:
         """Median arrival angle of the speech heard in the last `window_s` seconds, or None."""

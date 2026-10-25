@@ -34,7 +34,6 @@ from bridge.runtime.bootstrap import load_prompt
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.presence_notices import PresenceNotifier
 from bridge.runtime.touch import SpeechVad, TouchDetector, TouchKind, TouchSpeechGate
-from reachy.camera_worker import restore_mic_gain
 from bridge.runtime.speaker_id import MicRingBuffer, _to_mono, fuse_speaker
 from bridge.runtime.ports import (
     ConversationCallbacks,
@@ -148,8 +147,6 @@ class RuntimeOrchestrator:
         self._touch_gate = TouchSpeechGate(cooldown_s=config.touch_speak_cooldown_s)
         self._touch_deaf_until = 0.0
         self._touch_quiet_until = 0.0  # presence notices are absorbed until then
-        self._touch_agc_gain = config.touch_agc_restore_gain
-        self._touch_restore_pending = False  # petting cut short by Dobby speaking
         if config.touch_enabled:
             try:
                 vad = SpeechVad()  # talking close to the head reaches the petting level
@@ -385,9 +382,6 @@ class RuntimeOrchestrator:
         deaf = now < self._playback_end_ts + 0.8  # Dobby speaking (queued audio + echo tail)
         muted = now < self._touch_deaf_until  # our own reaction sound is playing
         events = self._touch.observe(self.input_sample_rate, sample, now, deaf=deaf, muted=muted)
-        if self._touch_restore_pending and not deaf and not self._touch.petting:
-            self._touch_restore_pending = False
-            self._restore_mic_gain()
         for event in events:
             kind, phase = _TOUCH_REACTIONS[event.kind]
             logging.info(
@@ -399,10 +393,6 @@ class RuntimeOrchestrator:
             else:
                 self._touch_quiet_until = now + _TOUCH_PRESENCE_QUIET_S
             sound_s = self.robot_actions.react_touch(kind, phase, asleep=self.sleeping)
-            if event.interrupted:
-                self._touch_restore_pending = True  # the hand may still be there; wait for quiet
-            elif event.kind is not TouchKind.PET_START:
-                self._restore_mic_gain()
             if sound_s > 0:
                 self._touch_deaf_until = now + sound_s + 0.3
             if self.sleeping:
@@ -412,15 +402,6 @@ class RuntimeOrchestrator:
             if text is not None and self.realtime is not None:
                 logging.info("[%dms] Touch notice: %s", self._elapsed_ms(), text)
                 self.realtime.send_text(text, respond=True)
-
-    def _restore_mic_gain(self) -> None:
-        """Undo the AGC collapse caused by petting the mic array (non-blocking)."""
-        if self._touch_agc_gain <= 0:
-            return
-        if self.camera_worker is not None:
-            self.camera_worker.restore_mic_gain(self._touch_agc_gain)
-        else:
-            restore_mic_gain(self._touch_agc_gain)
 
     def _maybe_send_presence_notice(self, now: float) -> None:
         """Tell the model who arrived, was recognized or left, only while the conversation is quiet."""

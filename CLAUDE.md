@@ -162,7 +162,7 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `TOUCH_ENABLED` | `1` | Detect petting and taps on the head from the mic array level; pose + sound, and a spoken request for more (rules in `src/prompts/touch.md`) |
 | `TOUCH_PET_DBFS` / `TOUCH_TAP_DBFS` | `-18` / `-15` | 100 ms RMS level that counts as petting / as one knock of a tap series (both must also stand 15 dB above the room noise) |
 | `TOUCH_SPEAK_COOLDOWN_S` | `300` | Minimum gap between spoken touch reactions of the same kind |
-| `TOUCH_AGC_RESTORE_GAIN` | `2.0` | XMOS AGC gain written back after petting/taps, and every 5 s whenever it has collapsed below 0.2 (petting collapses it and the mic goes deaf); `0` disables |
+| `MIC_FIXED_GAIN` | `2.0` | Mic array gain, kept with the XMOS AGC off (checked every 5 s): the AGC collapses when the head is touched and boosts room noise up to 64x in silence. `0` leaves the AGC on |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Persist per-speaker conversation summaries |
 | `NOTIFICATION_SERVER_PORT` | `18800` | HTTP port for injecting async notifications |
 | `WEB_UI_ENABLED` | `1` | Serve the web UI (PWA) on `WEB_UI_HOST:WEB_UI_PORT` (`127.0.0.1:18900`) |

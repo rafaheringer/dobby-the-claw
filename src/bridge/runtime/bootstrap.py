@@ -11,7 +11,7 @@ from typing import Any, Optional
 import os
 
 from bridge.config import BridgeConfig
-from reachy.camera_worker import CameraWorker
+from reachy.camera_worker import CameraWorker, apply_fixed_mic_gain
 from reachy.client import ReachyClient
 from reachy.face_recognizer import FaceRecognizer
 from reachy.motion import MotionManager
@@ -86,13 +86,15 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                     antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
                     face_recognizer=face_recognizer,
                     person_detector=person_detector,
-                    mic_gain_restore=config.touch_agc_restore_gain,
+                    mic_fixed_gain=config.mic_fixed_gain,
                 )
             else:
                 logging.info(
                     "Vision features disabled (camera tool, head tracking, speaker id, "
                     "finger tracking all off); skipping CameraWorker to save CPU"
                 )
+                if config.mic_fixed_gain > 0:
+                    apply_fixed_mic_gain(config.mic_fixed_gain)  # the camera worker keeps it otherwise
             motion_manager = MotionManager(
                 reachy_sdk_instance,
                 camera_worker=camera_worker,
