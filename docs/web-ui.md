@@ -1,7 +1,22 @@
 # Web UI (PWA)
 
 A page for the computer or the phone: live camera with detections, conversation, filterable logs,
-service status, controls and settings (a test of the wake word: it shows what Dobby heard). Installable on the phone's home screen.
+service status, controls and settings (a test of the wake word: it shows what Dobby heard), and a 3D
+digital twin of the robot (mocked for now). Installable on the phone's home screen.
+
+## Building the page
+
+The page is a React + Vite app in `src/web_ui/frontend/` (routes `/`, `/conversa`, `/logs`,
+`/sistema`, `/sistema/nome`, `/twin`). The bridge serves the build in `frontend/dist/`, falling back to
+`index.html` for any route, so reload and deep links work. `scripts/run-windows.ps1` runs `npm ci` and
+`npm run build` before starting the bridge whenever the lockfile or the sources changed (Node 20+ is
+required on the PC). Without a build, the page explains which commands to run.
+
+For frontend work, `npm run dev` (hot reload on <http://localhost:5173>) proxies `/ws` and `/api` to the
+running bridge; `npm run mock` + `npm run dev:mock` use a fake bridge instead.
+
+The 3D model is Pollen Robotics' `reachy_mini_viz.glb` (Apache-2.0, see
+`frontend/src/assets/robot/NOTICE.md`), Draco-compressed; its decoder is served from `/draco/`.
 
 ## How it is wired
 

@@ -34,7 +34,38 @@ function Start-Daemon {
 }
 Start-Daemon
 
-# 3) Bridge: carrega .env e roda a partir de src/ (caminhos relativos ../.dobby e ../models).
+# 3) Painel web: instala dependencias quando o lockfile muda e recompila quando o codigo muda.
+function Build-Frontend {
+    $fe = Join-Path $root "src\web_ui\frontend"
+    $lock = Join-Path $fe "package-lock.json"
+    $installed = Join-Path $fe "node_modules\.package-lock.json"
+    Push-Location $fe
+    try {
+        if (-not (Test-Path $installed) -or (Get-Item $lock).LastWriteTime -gt (Get-Item $installed).LastWriteTime) {
+            Write-Host "Instalando dependencias do painel web ..."
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw "npm ci do painel web falhou." }
+        }
+        $built = Join-Path $fe "dist\index.html"
+        $stale = -not (Test-Path $built)
+        if (-not $stale) {
+            $builtAt = (Get-Item $built).LastWriteTime
+            $sources = Get-ChildItem $fe -Force | Where-Object { $_.Name -notin @("node_modules", "dist") } |
+                ForEach-Object { if ($_.PSIsContainer) { Get-ChildItem $_.FullName -Recurse -File } else { $_ } }
+            $stale = [bool]($sources | Where-Object { $_.LastWriteTime -gt $builtAt } | Select-Object -First 1)
+        }
+        if ($stale) {
+            Write-Host "Compilando o painel web ..."
+            npm run build
+            if ($LASTEXITCODE -ne 0) { throw "Build do painel web falhou." }
+        }
+    } finally {
+        Pop-Location
+    }
+}
+Build-Frontend
+
+# 4) Bridge: carrega .env e roda a partir de src/ (caminhos relativos ../.dobby e ../models).
 Get-Content (Join-Path $root ".env") | ForEach-Object {
     if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2].Trim() }
 }

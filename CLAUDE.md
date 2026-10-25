@@ -28,6 +28,19 @@ python -m bridge.main
 
 Run from the `src/` directory, or set `PYTHONPATH=src`.
 
+### Web UI frontend
+
+The page is a React + Vite app in `src/web_ui/frontend/`, built to `frontend/dist/` (git-ignored) and
+served by the bridge. `scripts/run-windows.ps1` runs `npm ci` / `npm run build` when needed.
+
+```bash
+cd src/web_ui/frontend
+npm ci && npm run build   # tsc + vitest + vite build
+npm run dev               # hot reload on :5173, proxies /ws and /api to the bridge on :18900
+npm run mock              # fake bridge on :18901 (when the real one is down) ...
+npm run dev:mock          # ... and the dev server pointed at it
+```
+
 ### Docker (development hosts)
 
 ```bash
@@ -64,7 +77,9 @@ ruff check .    # Lint
 ruff format .   # Format (100-char line limit)
 ```
 
-There is no automated test suite; validation is manual/integration-based.
+There is no automated test suite for the bridge; validation is manual/integration-based. The web UI
+has unit tests (`npm test` in `src/web_ui/frontend/`) and `tests/web_ui/` (pytest) covers how the
+built page is served.
 
 ## Architecture
 
@@ -95,11 +110,11 @@ All tools are registered in `build_tool_registry()` in `src/bridge/runtime/audio
 
 ### Runtime Modes
 
-There is one mode: realtime voice. `realtime_mode.py` is a thin composition layer that builds the `RuntimeOrchestrator`; shared behavior belongs there. Unless `WEB_UI_ENABLED=0`, `main.py` also installs a log queue and starts the web UI (`src/web_ui/`: aiohttp server + static PWA) on its own thread. The pages feed typed turns and `/wake`, `/sleep` through `orchestrator.text_queue` (the hub refuses `/quit` and any other `/` text from the network). The camera stream with detection overlays comes from `CameraWorker.render_debug_frame()`.
+There is one mode: realtime voice. `realtime_mode.py` is a thin composition layer that builds the `RuntimeOrchestrator`; shared behavior belongs there. Unless `WEB_UI_ENABLED=0`, `main.py` also installs a log queue and starts the web UI (`src/web_ui/`: aiohttp server serving the React PWA from `frontend/dist`, with an SPA fallback so every route survives reload) on its own thread. The 3D digital twin uses Pollen's Reachy Mini model behind the `RobotLink` interface (`frontend/src/robot/`); today it is a mock (`MockRobotLink`) that sends nothing to the robot. The pages feed typed turns and `/wake`, `/sleep` through `orchestrator.text_queue` (the hub refuses `/quit` and any other `/` text from the network). The camera stream with detection overlays comes from `CameraWorker.render_debug_frame()`.
 
 ### Web UI security
 
-The server binds to `127.0.0.1` only. Requests that arrive through the Cloudflare tunnel (they carry `Cf-*`/`X-Forwarded-*` headers or a non-local Host) must present a valid Cloudflare Access JWT (`WEB_UI_ACCESS_TEAM_DOMAIN` + `WEB_UI_ACCESS_AUDIENCE`); without that config remote access is refused. Cross-origin writes and WebSocket upgrades are rejected, and secrets are masked in the logs sent to pages. Never bind it to `0.0.0.0` or expose the port without Access in front.
+The server binds to `127.0.0.1` only. Requests that arrive through the Cloudflare tunnel (they carry `Cf-*`/`X-Forwarded-*` headers or a non-local Host) must present a valid Cloudflare Access JWT (`WEB_UI_ACCESS_TEAM_DOMAIN` + `WEB_UI_ACCESS_AUDIENCE`); without that config remote access is refused. Cross-origin writes and WebSocket upgrades are rejected, and secrets are masked in the logs sent to pages. Never bind it to `0.0.0.0` or expose the port without Access in front. The CSP allows only `'self'`, plus `'wasm-unsafe-eval'` and `blob:` workers for the Draco decoder of the 3D model: no CDNs, self-hosted fonts.
 
 ### REACHY_BRIDGE_URL
 

@@ -1,7 +1,6 @@
-import { Check, ChevronLeft, Mic, X } from "lucide-react";
+import { Check, Mic, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect } from "react";
-import { Link } from "react-router";
 import { useMotionPreset } from "../app/motion";
 import { pushToast, send, useLive } from "../live/store";
 import { CountdownRing } from "../system/CountdownRing";
@@ -44,10 +43,7 @@ export default function SystemWake() {
 
   return (
     <div className="max-w-xl">
-      <Link to="/sistema" className="mb-1 inline-flex items-center gap-1 pt-2 text-sm text-dim hover:text-text">
-        <ChevronLeft className="size-4" /> Sistema
-      </Link>
-      <PageTitle>Teste do nome</PageTitle>
+      <PageTitle back={{ to: "/sistema", label: "Voltar para Sistema" }}>Teste do nome</PageTitle>
 
       <AnimatePresence>
         {awake && (

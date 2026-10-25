@@ -40,6 +40,8 @@ export default defineConfig(({ mode }) => {
       },
     }),
   ],
+  // The 3D stage chunk (three.js) is ~1 MB but loaded lazily, after the page is up.
+  build: { chunkSizeWarningLimit: 1100 },
   server: {
     proxy: {
       "/ws": { target: `ws://${BRIDGE}`, ws: true },
