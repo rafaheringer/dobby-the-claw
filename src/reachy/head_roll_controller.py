@@ -11,15 +11,19 @@ class HeadRollController:
     """Simple, robust tilt->roll controller with strong neutral lock."""
 
     def __init__(self) -> None:
-        """Initialize filter gains, hysteresis thresholds, and state memory."""
-        self._gain = 1.25
+        """Initialize filter gains, hysteresis thresholds, and state memory.
+
+        Tilts are the person's real eye-line angles (Dobby's own roll already removed), so the
+        output does not feed back into the input.
+        """
+        self._gain = 0.8
         self._max_roll_rad = np.deg2rad(18.0)
         self._smoothing_alpha = 0.20
         self._max_speed_rad_s = np.deg2rad(45.0)
 
-        self._hard_deadband_rad = np.deg2rad(8.0)
-        self._follow_enter_rad = np.deg2rad(12.0)
-        self._follow_exit_rad = np.deg2rad(6.0)
+        self._hard_deadband_rad = np.deg2rad(4.5)
+        self._follow_enter_rad = np.deg2rad(6.7)
+        self._follow_exit_rad = np.deg2rad(3.4)
         self._enter_required_frames = 3
         self._exit_required_frames = 6
 

@@ -65,6 +65,9 @@ class BreathingMove(Move):
         self.neutral_antennas = np.array([0.0, 0.0])
 
         self.breathing_z_amplitude = 0.005
+        # Raising the head 5 mm while it looks up at someone tilts it up by up to 10 degrees, so the
+        # manager fades the vertical breathing out while the camera follows a person.
+        self.z_scale = 1.0
         self.breathing_frequency = 0.1
         self.antenna_sway_amplitude = np.deg2rad(15)
         self.antenna_frequency = 0.5
@@ -87,7 +90,7 @@ class BreathingMove(Move):
             antennas = antennas_interp.astype(np.float64)
         else:
             breathing_time = t - self.interpolation_duration
-            z_offset = self.breathing_z_amplitude * np.sin(2 * np.pi * self.breathing_frequency * breathing_time)
+            z_offset = self.z_scale * self.breathing_z_amplitude * np.sin(2 * np.pi * self.breathing_frequency * breathing_time)
             head_pose = create_head_pose(x=0, y=0, z=z_offset, roll=0, pitch=0, yaw=0, degrees=True, mm=False)
             antenna_sway = self.antenna_sway_amplitude * np.sin(2 * np.pi * self.antenna_frequency * breathing_time)
             antennas = np.array([antenna_sway, -antenna_sway], dtype=np.float64)
@@ -194,6 +197,7 @@ class MotionManager:
         self._speech_animation_thread: threading.Thread | None = None
         self._sway_rt = SwayRollRT()
 
+        self._last_breathing_fade_time = 0.0
         self._body_yaw_tracking_enabled = True
         self._body_yaw_gain = 1.35
         self._body_yaw_enter_threshold_rad = 0.08
@@ -428,10 +432,20 @@ class MotionManager:
                     self._breathing_active = False
                     logger.debug("Failed to start breathing: %s", exc)
 
+    def _fade_breathing(self, move: BreathingMove, current_time: float) -> None:
+        """Fade the vertical breathing out over a second while the camera follows someone, back in after."""
+        dt = max(0.0, current_time - self._last_breathing_fade_time)
+        self._last_breathing_fade_time = current_time
+        following = any(abs(offset) > 1e-3 for offset in self.state.face_tracking_offsets[3:])
+        target = 0.0 if following else 1.0
+        move.z_scale += float(np.clip(target - move.z_scale, -min(dt, 0.1), min(dt, 0.1)))
+
     def _get_primary_pose(self, current_time: float) -> FullBodyPose:
         """Return current primary pose from move evaluation or last pose."""
         if self.state.current_move is not None and self.state.move_start_time is not None:
             move_time = current_time - self.state.move_start_time
+            if isinstance(self.state.current_move, BreathingMove):
+                self._fade_breathing(self.state.current_move, current_time)
             head, antennas, body_yaw = self.state.current_move.evaluate(move_time)
             if head is None:
                 head = create_head_pose(0, 0, 0, 0, 0, 0, degrees=True)

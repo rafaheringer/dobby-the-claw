@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -18,20 +17,27 @@ from reachy.motion import MotionManager
 from reachy.person_detector import PersonDetector
 
 
-def _build_head_tracker() -> Any:
-    """Create optional MediaPipe-based head tracker when available."""
-    if importlib.util.find_spec("mediapipe") is None:
-        logging.warning("MediaPipe not installed; head tracking backend unavailable")
+def _build_face_detector() -> Any:
+    """Create the SDK's YuNet face detector (the daemon's head tracking uses the same one)."""
+    try:
+        from reachy_mini.vision.face_detector import FaceDetector
+
+        detector = FaceDetector()
+        logging.info("Face detector: YuNet (reachy_mini.vision)")
+        return detector
+    except Exception as exc:
+        logging.warning("Failed to initialize the YuNet face detector: %s", exc)
         return None
 
+
+def _build_tilt_tracker() -> Any:
+    """Create the MediaPipe Face Mesh tracker that measures head tilt on face crops, when available."""
     try:
         from reachy_mini_toolbox.vision import HeadTracker
 
-        tracker = HeadTracker()
-        logging.info("Head tracking backend: MediaPipe HeadTracker")
-        return tracker
+        return HeadTracker()
     except Exception as exc:
-        logging.warning("Failed to initialize MediaPipe HeadTracker: %s", exc)
+        logging.warning("Head tilt imitation unavailable (MediaPipe Face Mesh): %s", exc)
         return None
 
 
@@ -75,11 +81,13 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
         try:
             reachy_sdk_instance = reachy.get_sdk_instance()
             if needs_video:
-                head_tracker = _build_head_tracker()
+                face_detector = _build_face_detector()
+                tilt_tracker = _build_tilt_tracker()
                 person_detector = PersonDetector(config.person_detector_model) if config.presence_enabled else None
                 camera_worker = CameraWorker(
                     reachy_sdk_instance,
-                    head_tracker=head_tracker,
+                    face_detector=face_detector,
+                    tilt_tracker=tilt_tracker,
                     tracking_max_width=config.vision_tracking_max_width,
                     tracking_fps=config.vision_tracking_fps,
                     antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,

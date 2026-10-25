@@ -7,7 +7,6 @@ image coordinates in [0, 1], x to the right and y down.
 from __future__ import annotations
 
 import math
-import random
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -61,8 +60,12 @@ class Box:
         """Estimate where the head is: near the top, lower for upper-body (wide) boxes.
 
         `aspect` is the image width/height in pixels, since x and y are normalized separately.
+        A box cut by the bottom of the image (someone close) says nothing about the head through
+        its height, so only its width (the shoulders) is used then.
         """
-        head_size = min(0.45 * self.width * aspect, 0.3 * self.height)  # in y units
+        head_size = 0.5 * self.width * aspect  # in y units
+        if self.y1 < 0.97:
+            head_size = min(head_size, 0.3 * self.height)
         return self.center_x, self.y0 + head_size / 2
 
 
@@ -158,21 +161,12 @@ def bearing_to_image_x(target_yaw: float, head_yaw: float) -> float:
 
 
 class GazeSelector:
-    """Decide which person to look at, like a person would in a room."""
+    """Decide which person to look at: whoever is talking, else the nearest person."""
 
-    def __init__(
-        self,
-        glance_min_s: float = 6.0,
-        glance_max_s: float = 14.0,
-        newcomer_s: float = 3.0,
-        rng: Optional[random.Random] = None,
-    ) -> None:
-        self._glance_min_s = glance_min_s
-        self._glance_max_s = glance_max_s
+    def __init__(self, newcomer_s: float = 3.0, nearer_ratio: float = 1.25) -> None:
         self._newcomer_s = newcomer_s
-        self._rng = rng or random.Random()
+        self._nearer_ratio = nearer_ratio  # how much taller another box must be to switch to it
         self._target_id: Optional[int] = None
-        self._switch_at = 0.0
 
     @property
     def target_id(self) -> Optional[int]:
@@ -187,38 +181,36 @@ class GazeSelector:
     ) -> Optional[Track]:
         """Return the track to look at.
 
-        Priority: whoever is talking (by voice direction, then by recognized name), a newcomer,
-        the current target, and with several people an occasional glance at someone else.
+        Priority: whoever is talking (by voice direction, then by recognized name), a newcomer for a
+        brief greeting look, then the nearest person (tallest box), kept until someone is clearly nearer.
         """
         if not tracks:
             self._target_id = None
             return None
         if len(tracks) == 1:
-            return self._set(tracks[0], now)
+            return self._set(tracks[0])
 
         if speech_x is not None:
             nearest = min(tracks, key=lambda t: abs(t.box.center_x - speech_x))
             if abs(nearest.box.center_x - speech_x) < 0.35:
-                return self._set(nearest, now)
+                return self._set(nearest)
         if speaker_name:
             named = [t for t in tracks if t.name == speaker_name]
             if len(named) == 1:
-                return self._set(named[0], now)
+                return self._set(named[0])
 
         newcomers = [t for t in tracks if t.confirmed_at is not None and now - t.confirmed_at < self._newcomer_s]
         if newcomers:
-            return self._set(max(newcomers, key=lambda t: t.confirmed_at or 0.0), now)
+            return self._set(max(newcomers, key=lambda t: t.confirmed_at or 0.0))
 
+        closest = max(tracks, key=lambda t: t.box.height)
         current = next((t for t in tracks if t.id == self._target_id), None)
-        if current is not None and now < self._switch_at:
+        if current is not None and closest.box.height < current.box.height * self._nearer_ratio:
             return current
-        others = [t for t in tracks if t.id != self._target_id]
-        return self._set(self._rng.choice(others), now)
+        return self._set(closest)
 
-    def _set(self, track: Track, now: float) -> Track:
-        if track.id != self._target_id:
-            self._target_id = track.id
-            self._switch_at = now + self._rng.uniform(self._glance_min_s, self._glance_max_s)
+    def _set(self, track: Track) -> Track:
+        self._target_id = track.id
         return track
 
 

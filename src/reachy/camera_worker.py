@@ -1,16 +1,18 @@
 """Camera worker with face-tracking offsets.
 
-This module follows the same control idea used by
-`reachy_mini_conversation_app`: continuously fetch camera frames,
-estimate a face target, derive pose offsets with `look_at_image`,
-and smoothly interpolate back to neutral when tracking is lost.
+Faces come from the SDK's YuNet detector, the one the daemon's own head tracking uses, and the
+head aims at the nose like it does. YuNet's eye points are too coarse for head tilt, so the tilt
+Dobby imitates comes from MediaPipe Face Mesh run on a square crop around the followed face. Unlike the daemon, which follows the largest face, the target
+is whoever is talking or else the nearest person, with person boxes reaching people too far for
+the face detector. The head eases toward the target and back to neutral when it is lost.
 """
 
 import logging
+import math
 import threading
 import time
 from collections import deque
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
@@ -18,10 +20,11 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation as R
 
 from reachy_mini.utils.interpolation import linear_pose_interpolation
+from reachy_mini.vision.look_at import DEFAULT_HEAD_TO_CAMERA_TRANSFORM
 from reachy.face_recognizer import FaceRecognizer
 from reachy.finger_antenna_controller import FingerAntennaController
 from reachy.head_roll_controller import HeadRollController
-from reachy.presence import PET_STRONG_SCORE, Box, GazeSelector, PersonTracker, Track, bearing_to_image_x
+from reachy.presence import FOCAL_OVER_WIDTH, PET_STRONG_SCORE, Box, GazeSelector, PersonTracker, Track, bearing_to_image_x
 
 try:
     import cv2
@@ -40,6 +43,18 @@ _ID_WINDOW = 6  # recent face looks kept per tracked person
 _ID_VOTES = 2  # agreeing looks needed to name a person
 _ID_RETRY_S = 1.5  # between looks at someone not yet named
 _ID_RECHECK_S = 12.0  # between looks at someone already named
+_FACE_MIN_AREA = 0.003  # fraction of the frame a face must cover to be picked up when following nobody
+_FACE_KEEP_RAD = 0.25  # a face this close to the followed one is the same person
+_FACE_KEEP_S = 1.5  # how long the followed face is remembered through missed detections
+
+
+@dataclass(frozen=True)
+class FaceSighting:
+    """One detected face: nose in [-1, 1] image coordinates, box (x, y, w, h) in pixels, frame fraction covered."""
+
+    center: Tuple[float, float]
+    box: Tuple[float, float, float, float]
+    area: float
 
 
 def _open_respeaker() -> Any:
@@ -95,7 +110,8 @@ class CameraWorker:
     def __init__(
         self,
         reachy_mini,
-        head_tracker: Any = None,
+        face_detector: Any = None,
+        tilt_tracker: Any = None,
         tracking_max_width: int = 640,
         tracking_fps: float = 15.0,
         antenna_finger_tracking_enabled: bool = True,
@@ -107,10 +123,12 @@ class CameraWorker:
     ) -> None:
         """Initialize camera worker dependencies and tracking state."""
         self.reachy_mini = reachy_mini
-        self.head_tracker = head_tracker
+        self.face_detector = face_detector
+        self.tilt_tracker = tilt_tracker
 
         self.latest_frame: NDArray[np.uint8] | None = None
         self.frame_lock = threading.Lock()
+        self._latest_frame_head: NDArray[np.float64] = np.eye(3)  # head rotation when it was captured
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -137,21 +155,20 @@ class CameraWorker:
         self._last_missing_frame_log_ts = 0.0
         self._missing_frame_since_ts: float | None = None
 
-        self._head_tracker_missing_logged = False
+        self._face_detector_missing_logged = False
+        self._followed_face: Optional[Tuple[float, Tuple[float, float]]] = None  # (when, world direction)
         self._roll_controller = HeadRollController()
 
         self._look_at_translation_gain = 0.5
-        self._yaw_from_center_gain = 0.90
-        self._yaw_from_center_deadband = 0.06
-        self._yaw_from_center_max_rad = 1.20
-        self._yaw_from_center_smoothing_alpha = 0.16
-        self._smoothed_yaw_from_center = 0.0
-        self._pitch_from_center_gain = 0.22
-        self._pitch_from_center_deadband = 0.08
-        self._pitch_from_center_max_rad = 0.22
-        self._eye_center_deadband = 0.035
-        self._eye_center_smoothing_alpha = 0.22
-        self._smoothed_eye_center: Optional[np.ndarray] = None
+        # Each sighting becomes a direction in the world (the head pose when its frame was captured
+        # plus the angle from the image center), so late sightings, like the ~4 fps person boxes,
+        # still point to the right place. The head moves a fraction of the way there per frame.
+        self._center_gain = 0.35
+        self._center_deadband_rad = 0.03
+        self._head_bias: Tuple[float, float] = (0.0, 0.0)  # real head minus commanded (pitch, yaw)
+        self._head_bias_alpha = 0.05
+        self._tracking_yaw_max_rad = 1.20
+        self._tracking_pitch_max_rad = 0.45
         self._camera_loop_period_s = 0.02
         self._tracking_max_width = max(0, int(tracking_max_width))
         self._tracking_period_s = 0.0 if tracking_fps <= 0 else (1.0 / float(tracking_fps))
@@ -199,6 +216,7 @@ class CameraWorker:
         self._speaker_face_certain = True  # False when the last speaker ID had to guess among several faces
         self._gaze = GazeSelector()
         self._gaze_target: Optional[Box] = None
+        self._gaze_head: NDArray[np.float64] = np.eye(3)  # head rotation when the gaze box's frame was captured
         self._person_update_ts = 0.0
         self._person_frame: Optional[NDArray[np.uint8]] = None  # the frame the tracks' boxes belong to
         self._person_aspect = 16 / 9  # frame width/height, to place heads inside normalized boxes
@@ -421,14 +439,15 @@ class CameraWorker:
             started = time.time()
             with self.frame_lock:
                 frame = self.latest_frame
+                frame_head = self._latest_frame_head
             if frame is not None:
                 try:
-                    self._update_persons(frame, started)
+                    self._update_persons(frame, started, frame_head)
                 except Exception as exc:
                     logger.debug("Person update failed: %s", exc)
             self._stop_event.wait(max(0.02, self._person_period_s - (time.time() - started)))
 
-    def _update_persons(self, frame: NDArray[np.uint8], now: float) -> None:
+    def _update_persons(self, frame: NDArray[np.uint8], now: float, frame_head: NDArray[np.float64]) -> None:
         detections = self._person_detector.detect(frame)  # type: ignore[union-attr]
         self._person_aspect = frame.shape[1] / float(frame.shape[0])
         people = [d for d in detections if d.label == "person"]
@@ -450,6 +469,7 @@ class CameraWorker:
                     self._speaking_track = (nearest.id, now)
             target = self._gaze.choose(verified or pet_tracks, now, speaker_name=speaker, speech_x=speech_x)
             self._gaze_target = None if target is None else target.box
+            self._gaze_head = frame_head
             self._person_update_ts = now
             self._person_frame = frame
             to_identify = self._next_track_to_identify(confirmed, now, target)
@@ -600,22 +620,105 @@ class CameraWorker:
                     track.name = None
 
     def _choose_tracking_target(
-        self, face_target: Optional[Tuple[np.ndarray, float]], now: float
-    ) -> Optional[Tuple[np.ndarray, float]]:
-        """Combine the face tracker with person boxes: faces are precise, person boxes reach farther."""
+        self,
+        faces: list[FaceSighting],
+        frame_head: NDArray[np.float64],
+        now: float,
+        width: int,
+        height: int,
+    ) -> Optional[Tuple[np.ndarray, Optional[FaceSighting], Tuple[float, float]]]:
+        """Pick what to look at: the chosen person's face, their estimated head when no face is seen, or a face.
+
+        Returns the target's image center, its face (None for a head estimated from a person box) and its
+        (pitch, yaw) direction in the world.
+        """
         speech_x = self._speech_image_x(now)
         if speech_x is not None and not -0.15 <= speech_x <= 1.15:
             return None  # someone is talking well outside the view: let DOA turn the head
         with self._person_lock:
             box = self._gaze_target if now - self._person_update_ts < 1.0 else None
-        if box is None:
-            return face_target
-        if face_target is not None:
-            fx, fy = (np.asarray(face_target[0], dtype=np.float32) + 1.0) / 2.0
-            if box.x0 - 0.05 <= fx <= box.x1 + 0.05 and box.y0 - 0.05 <= fy <= box.y1 + 0.05:
-                return face_target
-        hx, hy = box.head_point(self._person_aspect)
-        return (np.array([2.0 * hx - 1.0, 2.0 * hy - 1.0], dtype=np.float32), 0.0)
+            box_head = self._gaze_head
+        sightings = [
+            (face, self._world_direction(np.asarray(face.center), frame_head, width, height)) for face in faces
+        ]
+        if self._followed_face is not None and now - self._followed_face[0] > _FACE_KEEP_S:
+            self._followed_face = None
+
+        chosen = None
+        if box is not None:
+            # The box comes from an older frame, so compare directions rather than image positions.
+            box_pitch, box_yaw = self._world_direction(
+                np.array([2.0 * box.center_x - 1.0, 2.0 * box.center_y - 1.0]), box_head, width, height
+            )
+            half_yaw = box.width / 2.0 / FOCAL_OVER_WIDTH + 0.05
+            half_pitch = box.height * height / width / 2.0 / FOCAL_OVER_WIDTH + 0.05
+            inside = [
+                (face, direction)
+                for face, direction in sightings
+                if abs(direction[1] - box_yaw) <= half_yaw and abs(direction[0] - box_pitch) <= half_pitch
+            ]
+            if inside:
+                chosen = max(inside, key=lambda item: item[0].area)
+            else:
+                hx, hy = box.head_point(self._person_aspect)
+                center = np.array([2.0 * hx - 1.0, 2.0 * hy - 1.0], dtype=np.float32)
+                self._followed_face = None
+                return (center, None, self._world_direction(center, box_head, width, height))
+        elif sightings:
+            if self._followed_face is not None:
+                followed = self._followed_face[1]
+                nearest = min(sightings, key=lambda item: math.dist(item[1], followed))
+                if math.dist(nearest[1], followed) <= _FACE_KEEP_RAD:
+                    chosen = nearest
+            if chosen is None:
+                largest = max(sightings, key=lambda item: item[0].area)
+                if self._followed_face is None and largest[0].area >= _FACE_MIN_AREA:
+                    chosen = largest
+        if chosen is None:
+            return None
+        face, direction = chosen
+        self._followed_face = (now, direction)
+        return (np.asarray(face.center, dtype=np.float32), face, direction)
+
+    def _world_direction(
+        self, center: np.ndarray, head: NDArray[np.float64], width: int, height: int
+    ) -> Tuple[float, float]:
+        """(pitch, yaw) the head must take to face an image point ([-1, 1] coordinates) seen with rotation `head`.
+
+        The camera turns with the head, so a tilted head also tilts the image: the point's ray is taken
+        through the full head rotation (roll included) into the world before reading pitch and yaw.
+        """
+        u = (float(center[0]) + 1.0) / 2.0 * width
+        v = (float(center[1]) + 1.0) / 2.0 * height
+        x_n, y_n = self._normalized_ray(u, v, width, height)
+        ray = head @ (DEFAULT_HEAD_TO_CAMERA_TRANSFORM[:3, :3] @ np.array([x_n, y_n, 1.0]))
+        return float(np.arctan2(-ray[2], np.hypot(ray[0], ray[1]))), float(np.arctan2(ray[1], ray[0]))
+
+    @staticmethod
+    def _facing(head: NDArray[np.float64]) -> Tuple[float, float]:
+        """(pitch, yaw) of the direction the head faces, whatever its roll."""
+        forward = head[:, 0]
+        return float(np.arctan2(-forward[2], np.hypot(forward[0], forward[1]))), float(np.arctan2(forward[1], forward[0]))
+
+    def _update_head_bias(self, commanded_pitch: float, commanded_yaw: float) -> None:
+        """Learn, slowly and only while the head is nearly still, how far the real head sits from the command.
+
+        Looking far up, the head mechanics settle up to ~0.1 rad off the commanded pose.
+        """
+        measured_pitch, measured_yaw = self._facing(self._measured_head_rotation())
+        alpha = self._head_bias_alpha
+        self._head_bias = (
+            (1.0 - alpha) * self._head_bias[0] + alpha * float(np.clip(measured_pitch - commanded_pitch, -0.2, 0.2)),
+            (1.0 - alpha) * self._head_bias[1] + alpha * float(np.clip(measured_yaw - commanded_yaw, -0.2, 0.2)),
+        )
+
+    def _measured_head_rotation(self) -> NDArray[np.float64]:
+        """Head rotation as the robot reports it, or the tracking offsets when it can't tell."""
+        try:
+            return np.asarray(self.reachy_mini.get_current_head_pose(), dtype=np.float64)[:3, :3].copy()
+        except Exception:
+            with self.face_tracking_lock:
+                return R.from_euler("xyz", self.face_tracking_offsets[3:]).as_matrix()
 
     def start(self) -> None:
         """Start the camera worker thread."""
@@ -694,8 +797,10 @@ class CameraWorker:
                     self._maybe_emit_missing_frame_log(current_time)
                 else:
                     self._missing_frame_since_ts = None
+                    frame_head = self._measured_head_rotation()
                     with self.frame_lock:
                         self.latest_frame = frame
+                        self._latest_frame_head = frame_head
 
                     tracking_frame = self._prepare_tracking_frame(frame)
                     should_run_tracking = self._should_run_tracking(current_time)
@@ -711,26 +816,26 @@ class CameraWorker:
                         self._last_imitated_roll_rad = 0.0
                         self._last_filtered_tilt_rad = 0.0
                         self._last_head_tilt_bias_rad = 0.0
-                        self._smoothed_eye_center = None
-                        self._smoothed_yaw_from_center = 0.0
                         self._roll_controller.reset()
 
                     self.previous_head_tracking_state = self.is_head_tracking_enabled
 
                     if self.is_head_tracking_enabled and should_run_tracking:
+                        h, w, _ = frame.shape
                         tracking_target = self._choose_tracking_target(
-                            self._get_tracking_target(tracking_frame), current_time
+                            self._detect_faces(tracking_frame), frame_head, current_time, w, h
                         )
-                        eye_center = None if tracking_target is None else tracking_target[0]
-                        head_tilt_rad = 0.0 if tracking_target is None else float(tracking_target[1])
-                        eye_center = self._stabilize_eye_center(eye_center)
+                        eye_center = None if tracking_target is None else np.clip(tracking_target[0], -0.99, 0.99)
+                        target_face = None if tracking_target is None else tracking_target[1]
+                        seen_tilt = None if target_face is None else self._face_tilt(tracking_frame, target_face)
+                        # The image tilts with Dobby's own head roll; add it back to get the person's real tilt.
+                        head_tilt_rad = 0.0 if seen_tilt is None else seen_tilt + float(R.from_matrix(frame_head).as_euler("xyz")[0])
                         self._last_eye_center = eye_center
                         self._last_head_tilt_rad = head_tilt_rad
                         if eye_center is not None:
                             self.last_face_detected_time = current_time
                             self.interpolation_start_time = None
 
-                            h, w, _ = frame.shape
                             self._last_frame_size = (w, h)
                             eye_center_norm = (eye_center + 1) / 2
                             eye_center_pixels = [eye_center_norm[0] * w, eye_center_norm[1] * h]
@@ -744,34 +849,23 @@ class CameraWorker:
                             )
 
                             translation = target_pose[:3, 3] * self._look_at_translation_gain
-                            center_error_x = float(eye_center[0])
-                            center_error_y = float(eye_center[1])
-
-                            yaw_from_center = 0.0
-                            if abs(center_error_x) >= self._yaw_from_center_deadband:
-                                yaw_from_center = -center_error_x * self._yaw_from_center_gain
-                            yaw_from_center = float(
-                                np.clip(
-                                    yaw_from_center,
-                                    -self._yaw_from_center_max_rad,
-                                    self._yaw_from_center_max_rad,
-                                )
+                            target_pitch, target_yaw = tracking_target[2]
+                            with self.face_tracking_lock:
+                                tracking_pitch = self.face_tracking_offsets[4]
+                                tracking_yaw = self.face_tracking_offsets[5]
+                            target_pitch -= self._head_bias[0]
+                            target_yaw -= self._head_bias[1]
+                            if abs(target_yaw - tracking_yaw) >= self._center_deadband_rad:
+                                tracking_yaw += self._center_gain * (target_yaw - tracking_yaw)
+                            if abs(target_pitch - tracking_pitch) >= self._center_deadband_rad:
+                                tracking_pitch += self._center_gain * (target_pitch - tracking_pitch)
+                            if max(abs(target_pitch - tracking_pitch), abs(target_yaw - tracking_yaw)) < 0.05:
+                                self._update_head_bias(tracking_pitch, tracking_yaw)
+                            tracking_yaw = float(
+                                np.clip(tracking_yaw, -self._tracking_yaw_max_rad, self._tracking_yaw_max_rad)
                             )
-                            yaw_alpha = float(np.clip(self._yaw_from_center_smoothing_alpha, 0.01, 1.0))
-                            self._smoothed_yaw_from_center = (
-                                (1.0 - yaw_alpha) * self._smoothed_yaw_from_center
-                                + yaw_alpha * yaw_from_center
-                            )
-
-                            pitch_from_center = 0.0
-                            if abs(center_error_y) >= self._pitch_from_center_deadband:
-                                pitch_from_center = center_error_y * self._pitch_from_center_gain
-                            pitch_from_center = float(
-                                np.clip(
-                                    pitch_from_center,
-                                    -self._pitch_from_center_max_rad,
-                                    self._pitch_from_center_max_rad,
-                                )
+                            tracking_pitch = float(
+                                np.clip(tracking_pitch, -self._tracking_pitch_max_rad, self._tracking_pitch_max_rad)
                             )
 
                             imitated_roll = self._roll_controller.update(head_tilt_rad, now=current_time)
@@ -785,32 +879,26 @@ class CameraWorker:
                                     float(translation[1]),
                                     float(translation[2]),
                                     float(imitated_roll),
-                                    float(pitch_from_center),
-                                    float(self._smoothed_yaw_from_center),
+                                    tracking_pitch,
+                                    tracking_yaw,
                                 ]
                             self._maybe_identify_face_background(frame, current_time)
                         else:
-                            self._smoothed_eye_center = None
                             if (
                                 self._doa_target_yaw_rad is not None
                                 and current_time < self._doa_active_until
                             ):
                                 # DOA active: steer head toward sound source
                                 alpha = 0.12
-                                self._smoothed_yaw_from_center = (
-                                    (1.0 - alpha) * self._smoothed_yaw_from_center
-                                    + alpha * self._doa_target_yaw_rad
-                                )
                                 with self.face_tracking_lock:
                                     self.face_tracking_offsets[5] = float(
-                                        self._smoothed_yaw_from_center
+                                        (1.0 - alpha) * self.face_tracking_offsets[5]
+                                        + alpha * self._doa_target_yaw_rad
                                     )
                                 # Suppress neutral interpolation while DOA is active
                                 self.last_face_detected_time = current_time
-                            else:
-                                if self._doa_target_yaw_rad is not None:
-                                    self._doa_target_yaw_rad = None
-                                self._smoothed_yaw_from_center *= 0.8
+                            elif self._doa_target_yaw_rad is not None:
+                                self._doa_target_yaw_rad = None
 
                     if self.last_face_detected_time is not None:
                         time_since_face_lost = current_time - self.last_face_detected_time
@@ -844,6 +932,7 @@ class CameraWorker:
                                 ]
 
                             if t >= 1.0:
+                                self._head_bias = (0.0, 0.0)  # it depends on the pose; neutral has none
                                 self.last_face_detected_time = None
                                 self.interpolation_start_time = None
                                 self.interpolation_start_pose = None
@@ -882,77 +971,51 @@ class CameraWorker:
         self._last_tracking_update_ts = current_time
         return True
 
-    def _get_tracking_target(self, frame: NDArray[np.uint8]) -> Optional[Tuple[np.ndarray, float]]:
-        """Return face target center and head tilt roll estimate in radians."""
-        if self.head_tracker is None:
-            if not self._head_tracker_missing_logged:
-                logger.warning("Head tracking backend not available; no face target will be produced")
-                self._head_tracker_missing_logged = True
-            return None
+    def _detect_faces(self, frame: NDArray[np.uint8]) -> list[FaceSighting]:
+        """Detect every face in the frame, aimed at the nose like the daemon's head tracking."""
+        if self.face_detector is None:
+            if not self._face_detector_missing_logged:
+                logger.warning("Face detector not available; only person boxes can be followed")
+                self._face_detector_missing_logged = True
+            return []
 
         try:
-            result = self.head_tracker.get_head_position(frame)
+            faces = self.face_detector.detect(frame)
         except Exception as exc:
-            logger.debug("Head tracker failed: %s", exc)
+            logger.debug("Face detection failed: %s", exc)
+            return []
+
+        height, width = frame.shape[:2]
+        sightings = []
+        for face in faces:
+            nose_x, nose_y = face.nose
+            sightings.append(
+                FaceSighting(
+                    center=(nose_x / max(width - 1, 1) * 2 - 1, nose_y / max(height - 1, 1) * 2 - 1),
+                    box=tuple(float(v) for v in face.bbox),
+                    area=face.bbox[2] * face.bbox[3] / float(width * height),
+                )
+            )
+        return sightings
+
+    def _face_tilt(self, frame: NDArray[np.uint8], face: FaceSighting) -> Optional[float]:
+        """Head tilt (rad) of one face in the image, from Face Mesh on a square crop (None when it can't tell)."""
+        if self.tilt_tracker is None:
             return None
-
-        if result is None:
+        height, width = frame.shape[:2]
+        x, y, w, h = face.box
+        side = 1.8 * max(w, h)
+        cx, cy = x + w / 2.0, y + h / 2.0
+        x0, y0 = int(max(0.0, cx - side / 2)), int(max(0.0, cy - side / 2))
+        x1, y1 = int(min(width, cx + side / 2)), int(min(height, cy + side / 2))
+        if x1 - x0 < 16 or y1 - y0 < 16:
             return None
-
-        eye_center = None
-        tracker_payload: Any = None
-        if isinstance(result, tuple):
-            if len(result) >= 1:
-                eye_center = result[0]
-            if len(result) >= 2:
-                tracker_payload = result[1]
-        else:
-            eye_center = result
-
-        if eye_center is None:
-            return None
-
-        tilt = self._extract_tracker_tilt_rad(tracker_payload)
-        if tilt is None:
-            tilt = 0.0
-        return (np.asarray(eye_center, dtype=np.float32), tilt)
-
-    def _extract_tracker_tilt_rad(self, payload: Any) -> Optional[float]:
-        """Extract tilt roll from tracker payload using tolerant key parsing."""
-        if payload is None:
-            return None
-
-        value: Any = None
-        if isinstance(payload, dict):
-            for key in (
-                "roll_rad",
-                "head_roll_rad",
-                "tilt_rad",
-                "roll",
-                "head_roll",
-                "tilt",
-            ):
-                if key in payload:
-                    value = payload[key]
-                    break
-        elif isinstance(payload, (float, int, np.floating)):
-            value = payload
-        elif isinstance(payload, (tuple, list)) and payload:
-            first = payload[0]
-            if isinstance(first, (float, int, np.floating)):
-                value = first
-
-        if value is None:
-            return None
-
         try:
-            tilt = float(value)
-        except (TypeError, ValueError):
+            _, roll = self.tilt_tracker.get_head_position(frame[y0:y1, x0:x1])
+        except Exception as exc:
+            logger.debug("Face tilt failed: %s", exc)
             return None
-
-        if abs(tilt) > np.pi:
-            tilt = float(np.deg2rad(tilt))
-        return float(np.clip(tilt, -np.deg2rad(30.0), np.deg2rad(30.0)))
+        return None if roll is None else float(roll)
 
     def _update_antenna_finger_control(self, frame: NDArray[np.uint8], current_time: float) -> None:
         """Update antenna offsets from finger controller output."""
@@ -962,25 +1025,18 @@ class CameraWorker:
             self._hand_control_offsets = (float(state.offsets[0]), float(state.offsets[1]))
             self._last_index_finger_count = int(state.finger_count)
 
-    def _stabilize_eye_center(self, eye_center: Optional[np.ndarray]) -> Optional[np.ndarray]:
-        """Low-pass + deadband stabilization for target center to avoid micro-corrections."""
-        if eye_center is None:
-            return None
-
-        center = np.asarray(eye_center, dtype=np.float32).reshape(2)
-        if self._smoothed_eye_center is None:
-            self._smoothed_eye_center = center
-            return center
-
-        delta = center - self._smoothed_eye_center
-        stabilized = center.copy()
-        for index in (0, 1):
-            if abs(float(delta[index])) < self._eye_center_deadband:
-                stabilized[index] = self._smoothed_eye_center[index]
-
-        alpha = float(np.clip(self._eye_center_smoothing_alpha, 0.01, 1.0))
-        self._smoothed_eye_center = ((1.0 - alpha) * self._smoothed_eye_center) + (alpha * stabilized)
-        return self._smoothed_eye_center.astype(np.float32)
+    def _normalized_ray(self, u: float, v: float, width: int, height: int) -> Tuple[float, float]:
+        """Undistorted normalized camera coordinates (x right, y down, at depth 1) of pixel (u, v)."""
+        camera = getattr(getattr(self.reachy_mini, "media", None), "camera", None)
+        K = getattr(camera, "K", None)
+        if cv2 is not None and K is not None:
+            resolution = getattr(camera, "resolution", None) or (width, height)
+            point = np.array([[[u * resolution[0] / width, v * resolution[1] / height]]], dtype=np.float32)
+            x_n, y_n = cv2.undistortPoints(point, K, getattr(camera, "D", None))[0, 0]
+        else:
+            focal = FOCAL_OVER_WIDTH * width
+            x_n, y_n = (u - width / 2.0) / focal, (v - height / 2.0) / focal
+        return float(x_n), float(y_n)
 
     def _draw_tilt_indicator(self, vis: NDArray[np.uint8], detected_tilt_rad: float, imitated_roll_rad: float) -> None:
         """Draw compact tilt plot (detected vs applied) in debug view."""
