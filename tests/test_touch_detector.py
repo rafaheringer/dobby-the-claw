@@ -37,11 +37,9 @@ def test_petting_starts_fast_and_ends_once():
     assert ev[1].duration_s > 5.0
 
 
-def test_light_petting_detected_without_taps():
-    ev = run("carinho_leve_g2")
-    # Late: its first strokes look like a knock series, which holds petting back.
-    assert ev[0].kind is TouchKind.PET_START and ev[0].at <= 7.5
-    assert TouchKind.TAP not in [e.kind for e in ev]
+def test_barely_touching_is_never_a_tap():
+    # Too faint to tell from house noise at full gain, so it may go unnoticed; never a tap.
+    assert TouchKind.TAP not in _kinds(run("carinho_leve_g2", vad=SpeechVad()))
 
 
 def test_tap_emitted_once_per_series_after_hold():
@@ -98,7 +96,7 @@ def test_rapid_taps_at_full_gain_are_taps_not_petting():
 
 
 def test_petting_at_full_gain_is_one_episode_without_taps():
-    for name in ("carinho_g2", "carinho_leve_g2"):
+    for name in ("carinho", "carinho_g2"):
         kinds = _kinds(run(name))
         assert TouchKind.TAP not in kinds, name
         assert kinds[0] is TouchKind.PET_START, name
@@ -112,7 +110,7 @@ def test_close_speech_is_not_a_touch():
 
 def test_speech_filter_keeps_touches():
     assert TouchKind.PET_START not in _kinds(run("batidinha_g2", vad=SpeechVad()))
-    for name in ("carinho", "carinho_g2", "carinho_leve_g2"):
+    for name in ("carinho", "carinho_g2"):
         kinds = _kinds(run(name, vad=SpeechVad()))
         assert kinds[0] is TouchKind.PET_START and TouchKind.TAP not in kinds, name
 
@@ -165,3 +163,10 @@ def test_hiss_bursts_are_not_touches():
     # Nobody near the robot, a TV far away: two saturating bursts, mostly above 3 kHz.
     # Touching the shell is a low thump or rub (under 1 kHz).
     assert run("ruido_agudo", vad=SpeechVad()) == []
+
+
+def test_house_noise_is_not_a_touch():
+    # Nobody near the robot: a TV and the shower keep the room near -25 dBFS, and doors or
+    # footsteps rise only 7-13 dB above it. Touches rise 25+ dB above a quiet room.
+    for name in ("ruido_casa_1", "ruido_casa_2", "ruido_chegada"):
+        assert run(name, vad=SpeechVad()) == [], name

@@ -3,7 +3,9 @@
 Petting right on the array saturates it (100 ms windows near -10 dBFS, clipped samples) while speech
 at a normal distance stays below about -22 dBFS; taps are short transients. Speech close to the head
 reaches the same level, so a voice activity detector masks it; loud hiss (mostly above 3 kHz) is not
-a touch either: rubbing or knocking on the shell stays under 1 kHz. Pure logic: the
+a touch either: rubbing or knocking on the shell stays under 1 kHz. Contact is also far louder than
+the room: a window counts only when it stands well above the recent noise floor (a TV or the shower
+keep the room near -25 dBFS, and doors or footsteps rise only 7-13 dB above it). Pure logic: the
 orchestrator feeds mic chunks and acts on the returned events.
 """
 
@@ -35,6 +37,9 @@ _SPEECH_PROB = 0.5  # VAD probability above which a window is someone talking, n
 _SPEECH_MASK_S = 0.5  # windows this long after speech are masked too (syllable gaps, plosives)
 _HISS_HZ = 3000.0
 _HISS_SHARE = 0.4  # touch windows keep ~1% of their energy above _HISS_HZ, hiss bursts ~60%
+_FLOOR_WINDOWS = 30  # noise floor: a low percentile of the last 3 s of windows
+_FLOOR_PERCENTILE = 20
+_ABOVE_FLOOR_DB = 15.0  # touches rise 25+ dB above a quiet room
 
 
 class TouchKind(str, Enum):
@@ -100,13 +105,14 @@ class TouchDetector:
     def __init__(
         self,
         pet_dbfs: float = -18.0,
-        tap_peak: float = 0.5,
+        tap_dbfs: float = -15.0,
         vad: Callable[[np.ndarray, int], float] | None = None,
     ) -> None:
-        """Store thresholds: window RMS (dBFS) for petting, sample peak for taps; `vad` (speech
-        probability of a window) masks someone talking close to the head."""
+        """Store thresholds: window RMS (dBFS) for petting and for each knock of a tap series; `vad`
+        (speech probability of a window) masks someone talking close to the head."""
         self._pet_rms = 10 ** (pet_dbfs / 20)
-        self._tap_peak = tap_peak
+        self._tap_rms = 10 ** (tap_dbfs / 20)
+        self._floor: deque[float] = deque(maxlen=_FLOOR_WINDOWS)
         self._vad = vad
         self._speech_until = float("-inf")
         self._buffer = np.zeros(0, dtype=np.float32)
@@ -120,6 +126,7 @@ class TouchDetector:
     def _reset(self) -> None:
         self._buffer = np.zeros(0, dtype=np.float32)
         self._loud: deque[float] = deque()
+        self._strong: deque[float] = deque()  # loud windows also above the knock level
         self._run = 0  # consecutive loud windows
         self._last_loud = float("-inf")
         self._pet_started_at: float | None = None
@@ -173,16 +180,22 @@ class TouchDetector:
         if self._vad is not None and self._vad(window, sample_rate) >= _SPEECH_PROB:
             self._speech_until = at + _SPEECH_MASK_S
         talking = at < self._speech_until
-        loud = float(np.sqrt(np.mean(window**2))) > self._pet_rms
-        hit = loud or float(np.max(np.abs(window))) >= self._tap_peak
-        if talking or (hit and _hiss_share(window, sample_rate) > _HISS_SHARE):
-            loud = hit = False
+        rms = float(np.sqrt(np.mean(window**2)))
+        floor = float(np.percentile(self._floor, _FLOOR_PERCENTILE)) if self._floor else 0.0
+        self._floor.append(rms)
+        loud = rms > max(self._pet_rms, floor * 10 ** (_ABOVE_FLOOR_DB / 20))
+        if talking or (loud and _hiss_share(window, sample_rate) > _HISS_SHARE):
+            loud = False
+        hit = loud and rms > self._tap_rms
         self._run = self._run + 1 if loud else 0
         if loud:
             self._last_loud = at
             self._loud.append(at)
-        while self._loud and at - self._loud[0] > _PET_SPAN_S:
-            self._loud.popleft()
+        if hit:
+            self._strong.append(at)
+        for times in (self._loud, self._strong):
+            while times and at - times[0] > _PET_SPAN_S:
+                times.popleft()
 
         if self._pet_started_at is not None:
             if at - self._last_loud >= _PET_END_S:
@@ -190,6 +203,7 @@ class TouchDetector:
                 self._pet_started_at = None
                 self._pet_ended_at = at
                 self._loud.clear()
+                self._strong.clear()
             return events
 
         onset, self._was_hit = hit and not self._was_hit, hit
@@ -199,7 +213,8 @@ class TouchDetector:
             self._knocks.append(at)
         if len(self._loud) >= _TAP_BURST_WINDOWS or _steady_series(self._knocks):
             self._tapping = True
-        settled = len(self._loud) >= _PET_MIN_WINDOWS and at - self._loud[0] >= _PET_SETTLE_S
+        # Sparse petting needs strong windows: footsteps or a door barely clear the petting level.
+        settled = len(self._strong) >= _PET_MIN_WINDOWS and at - self._strong[0] >= _PET_SETTLE_S
         if self._run >= _PET_SUSTAIN_WINDOWS or (settled and not self._tapping):
             self._pet_started_at = self._loud[0]
             self._knocks = []
@@ -211,6 +226,7 @@ class TouchDetector:
             self._knocks = []
             self._tapping = False
             self._loud.clear()
+            self._strong.clear()
         elif self._tapping and at - self._last_loud >= _TAP_HOLD_S:
             self._tapping = False
         return events

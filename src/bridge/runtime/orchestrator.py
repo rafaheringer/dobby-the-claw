@@ -157,7 +157,7 @@ class RuntimeOrchestrator:
                 logging.warning("Touch speech filter unavailable (%s); close speech may read as touch", exc)
                 vad = None
             self._touch = TouchDetector(
-                pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak, vad=vad
+                pet_dbfs=config.touch_pet_dbfs, tap_dbfs=config.touch_tap_dbfs, vad=vad
             )
 
         self.tool_runtime = tool_runtime or build_tool_runtime(

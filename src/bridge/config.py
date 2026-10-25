@@ -109,7 +109,7 @@ class BridgeConfig:
     presence_greet_cooldown_s: float = 10800.0
     touch_enabled: bool = True
     touch_pet_dbfs: float = -18.0
-    touch_tap_peak: float = 0.5
+    touch_tap_dbfs: float = -15.0
     touch_speak_cooldown_s: float = 300.0
     touch_agc_restore_gain: float = 2.0
 
@@ -206,7 +206,7 @@ class BridgeConfig:
             presence_greet_cooldown_s=float(os.getenv("PRESENCE_GREET_COOLDOWN_S", "10800")),
             touch_enabled=_env_flag("TOUCH_ENABLED", True),
             touch_pet_dbfs=float(os.getenv("TOUCH_PET_DBFS", "-18")),
-            touch_tap_peak=float(os.getenv("TOUCH_TAP_PEAK", "0.5")),
+            touch_tap_dbfs=float(os.getenv("TOUCH_TAP_DBFS", "-15")),
             touch_speak_cooldown_s=float(os.getenv("TOUCH_SPEAK_COOLDOWN_S", "300")),
             touch_agc_restore_gain=float(os.getenv("TOUCH_AGC_RESTORE_GAIN", "2.0")),
         )

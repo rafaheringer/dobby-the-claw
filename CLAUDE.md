@@ -160,7 +160,7 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `VOICE_ID_ENABLED` | `1` | Also identify speakers by voice (sherpa-onnx), learned automatically from face matches |
 | `PRESENCE_ENABLED` | `1` | Person detection: follow distant people, choose whom to look at, presence notices for greetings (rules in `src/prompts/presence.md`) |
 | `TOUCH_ENABLED` | `1` | Detect petting and taps on the head from the mic array level; pose + sound, and a spoken request for more (rules in `src/prompts/touch.md`) |
-| `TOUCH_PET_DBFS` / `TOUCH_TAP_PEAK` | `-18` / `0.5` | 100 ms RMS level that counts as petting / sample peak that counts as a tap |
+| `TOUCH_PET_DBFS` / `TOUCH_TAP_DBFS` | `-18` / `-15` | 100 ms RMS level that counts as petting / as one knock of a tap series (both must also stand 15 dB above the room noise) |
 | `TOUCH_SPEAK_COOLDOWN_S` | `300` | Minimum gap between spoken touch reactions of the same kind |
 | `TOUCH_AGC_RESTORE_GAIN` | `2.0` | XMOS AGC gain written back after petting/taps, and every 5 s whenever it has collapsed below 0.2 (petting collapses it and the mic goes deaf); `0` disables |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Persist per-speaker conversation summaries |

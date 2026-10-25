@@ -69,9 +69,9 @@ def test_tap_awake_startles_and_complains():
     assert restores == [2.0] * len(calls)
 
 
-def test_light_petting_is_petting_not_taps():
-    o, _ = _run("carinho_leve_g2", tail_s=6.0)  # starts late; let the reaction sound finish
-    assert [c[0] for c in o.robot_actions.calls] == ["pet", "pet"]
+def test_barely_touching_never_startles():
+    o, _ = _run("carinho_leve_g2", tail_s=6.0)
+    assert "tap" not in [c[0] for c in o.robot_actions.calls]
 
 
 def test_asleep_petting_only_makes_a_sound():
