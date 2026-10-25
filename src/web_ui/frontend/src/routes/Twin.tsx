@@ -62,6 +62,13 @@ export default function Twin() {
   const { simulated } = robotLink.useLinkState();
   const close = () => closeTwin(navigate, window.history.state?.idx);
   useTwinKeys();
+  // The home page stays mounted underneath: without this the whole screen scrolls it, behind the twin.
+  useEffect(() => {
+    const els = [document.documentElement, document.body]; // both: iOS Safari ignores html alone
+    const before = els.map((el) => el.style.overflow);
+    els.forEach((el) => (el.style.overflow = "hidden"));
+    return () => els.forEach((el, i) => (el.style.overflow = before[i]));
+  }, []);
   // Leaving the controls hands the robot back to Dobby; a frozen head nobody is driving looks broken.
   useEffect(
     () => () => {
@@ -112,7 +119,7 @@ export default function Twin() {
         exit="exit"
         aria-label="Controles"
         className={cx(
-          "pointer-events-auto mt-auto overflow-y-auto border-t border-ink bg-surface p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]",
+          "pointer-events-auto mt-auto overflow-y-auto overscroll-contain border-t border-ink bg-surface p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]",
           "h-[44dvh] lg:absolute lg:bottom-0 lg:right-0 lg:top-0 lg:mt-0 lg:h-auto lg:w-[368px] lg:border-l lg:border-t-0 lg:px-5 lg:py-7",
         )}
       >

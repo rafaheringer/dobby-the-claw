@@ -10,6 +10,7 @@ import { useStageStatus } from "./stageStatus";
 // Room left for the controls in full mode: a bottom sheet on phones, a side panel on desktop.
 export const PHONE_PANEL_FRACTION = 0.44;
 export const DESKTOP_PANEL_PX = 400;
+const PHONE_TOP_BAR_PX = 60;
 const DESKTOP_MIN_PX = 1024;
 
 const _center = new THREE.Vector3();
@@ -34,9 +35,10 @@ function CameraRig({ boxes, full, snap }: { boxes: RobotBoxes | null; full: bool
       cam.setViewOffset(width, height, DESKTOP_PANEL_PX / 2, 0, width, height);
       width -= DESKTOP_PANEL_PX;
     } else if (full) {
+      // Visible band: between the top bar (Voltar, mode) and the controls panel at the bottom.
       const panel = height * PHONE_PANEL_FRACTION;
-      cam.setViewOffset(width, height, 0, panel / 2, width, height);
-      height -= panel;
+      cam.setViewOffset(width, height, 0, (panel - PHONE_TOP_BAR_PX) / 2, width, height);
+      height -= panel + PHONE_TOP_BAR_PX;
     } else cam.clearViewOffset();
     const visibleFov = (2 * Math.atan(Math.tan((CAMERA_FOV * Math.PI) / 360) * (height / size.height)) * 180) / Math.PI;
     const distance = fitDistance({ width: Math.max(_size.x, _size.z), height: _size.y }, visibleFov, width / height, full ? 1.2 : 1.4);
