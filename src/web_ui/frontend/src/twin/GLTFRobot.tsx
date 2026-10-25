@@ -178,8 +178,12 @@ export function GLTFRobot({ getPose, headOnly, onBoxes }: Props) {
     model.traverse((o) => {
       if (["antennal003", "antennar003"].includes(norm(o.name))) headBox.expandByPoint(o.getWorldPosition(new THREE.Vector3()));
     });
-    headBox.max.y += (headBox.max.y - headBox.min.y) * 0.3; // the rods reach past their last bone
-    onBoxes({ full: new THREE.Box3().setFromObject(model, true), head: headBox });
+    const headHeight = headBox.max.y - headBox.min.y;
+    const rodsTop = headBox.max.y + headHeight * 0.9; // the rods reach well past their last bone
+    headBox.max.y += headHeight * 0.45; // the close-up may crop the rod tips
+    const fullBox = new THREE.Box3().setFromObject(model, true);
+    fullBox.max.y = Math.max(fullBox.max.y, rodsTop);
+    onBoxes({ full: fullBox, head: headBox });
   }, [model, onBoxes]);
 
   useEffect(() => applyHeadOnly(model, headOnly), [model, headOnly]);

@@ -39,8 +39,8 @@ function CameraRig({ boxes, full, snap }: { boxes: RobotBoxes | null; full: bool
       height -= panel;
     } else cam.clearViewOffset();
     const visibleFov = (2 * Math.atan(Math.tan((CAMERA_FOV * Math.PI) / 360) * (height / size.height)) * 180) / Math.PI;
-    const distance = fitDistance({ width: Math.max(_size.x, _size.z), height: _size.y }, visibleFov, width / height, full ? 1.15 : 1.35);
-    _wantPos.set(_center.x, _center.y + distance * 0.12, _center.z + distance);
+    const distance = fitDistance({ width: Math.max(_size.x, _size.z), height: _size.y }, visibleFov, width / height, full ? 1.2 : 1.35);
+    _wantPos.set(_center.x, _center.y + distance * 0.05, _center.z + distance);
     const k = snap ? 1 : 1 - Math.exp(-6 * Math.min(delta, 0.05));
     cam.position.lerp(_wantPos, k);
     lookAt.current.lerp(_center, k);

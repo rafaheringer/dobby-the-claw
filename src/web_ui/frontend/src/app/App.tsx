@@ -4,7 +4,6 @@ import Home from "../routes/Home";
 import Logs from "../routes/Logs";
 import System from "../routes/System";
 import SystemWake from "../routes/SystemWake";
-import Twin from "../routes/Twin";
 import Layout from "./Layout";
 
 export default function App() {
@@ -17,7 +16,7 @@ export default function App() {
           <Route path="logs" element={<Logs />} />
           <Route path="sistema" element={<System />} />
           <Route path="sistema/nome" element={<SystemWake />} />
-          <Route path="twin" element={<Twin />} />
+          <Route path="twin" element={null} /> {/* drawn by Layout over the home page */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
