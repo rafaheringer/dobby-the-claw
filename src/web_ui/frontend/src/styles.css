@@ -1,0 +1,76 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+:root {
+  color-scheme: dark;
+  --accent: #9aa8ff;
+  --accent-ink: #161a2c;
+  --st-listening: #7cf0c5;
+  --st-thinking: #ffc56b;
+  --st-executing: #9aa8ff;
+  --st-confirming: #ffc56b;
+  --st-sleeping: #8a90a8;
+  --st-error: #ff7a85;
+  --glass-bg: rgba(255, 255, 255, 0.07);
+  --glass-bg-strong: rgba(255, 255, 255, 0.12);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --text: #eef0ff;
+  --text-dim: #aab0d6;
+  --bg-0: #2c3266;
+  --bg-1: #161a2c;
+  --bg-2: #0f111b;
+}
+
+@theme {
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-st-listening: var(--st-listening);
+  --color-st-thinking: var(--st-thinking);
+  --color-st-executing: var(--st-executing);
+  --color-st-confirming: var(--st-confirming);
+  --color-st-sleeping: var(--st-sleeping);
+  --color-st-error: var(--st-error);
+  --color-glass: var(--glass-bg);
+  --color-glass-strong: var(--glass-bg-strong);
+  --color-glass-border: var(--glass-border);
+  --color-text: var(--text);
+  --color-dim: var(--text-dim);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background-color: var(--bg-2);
+  background-image: radial-gradient(120% 70% at 30% 0%, var(--bg-0) 0%, var(--bg-1) 55%, var(--bg-2) 100%);
+  background-attachment: fixed;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+@utility glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}

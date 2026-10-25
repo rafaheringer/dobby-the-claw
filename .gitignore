@@ -215,3 +215,7 @@ models/vision/
 
 # Visual brainstorming companion
 .superpowers/
+
+# Web UI frontend build
+src/web_ui/frontend/node_modules/
+src/web_ui/frontend/dist/
