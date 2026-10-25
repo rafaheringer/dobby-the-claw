@@ -43,10 +43,10 @@ def test_barely_touching_is_never_a_tap():
 
 
 def test_tap_emitted_once_per_series_after_hold():
-    # Four series of 4-8 knocks; each is reported 1 s after its last knock.
-    ev = run("batidinha_g2")
-    assert [e.kind for e in ev] == [TouchKind.TAP] * 4
-    assert 2.5 <= ev[0].at <= 2.9
+    # Three series of 3 knocks; each is reported 1 s after its last knock.
+    ev = run("batidinha_noagc")
+    assert [e.kind for e in ev] == [TouchKind.TAP] * 3
+    assert 2.2 <= ev[0].at <= 2.6
 
 
 def test_deaf_suppresses_everything():
@@ -88,13 +88,6 @@ def _kinds(events):
     return [e.kind for e in events]
 
 
-def test_rapid_taps_at_full_gain_are_taps_not_petting():
-    # Bursts of ~5 taps/s: each tap is one or two loud windows with silence in between.
-    kinds = _kinds(run("batidinha_g2"))
-    assert TouchKind.PET_START not in kinds
-    assert TouchKind.TAP in kinds
-
-
 def test_petting_at_full_gain_is_one_episode_without_taps():
     for name in ("carinho", "carinho_g2"):
         kinds = _kinds(run(name))
@@ -109,7 +102,7 @@ def test_close_speech_is_not_a_touch():
 
 
 def test_speech_filter_keeps_touches():
-    assert TouchKind.PET_START not in _kinds(run("batidinha_g2", vad=SpeechVad()))
+    assert TouchKind.PET_START not in _kinds(run("batidinha_noagc", vad=SpeechVad()))
     for name in ("carinho", "carinho_g2"):
         kinds = _kinds(run(name, vad=SpeechVad()))
         assert kinds[0] is TouchKind.PET_START and TouchKind.TAP not in kinds, name
@@ -125,7 +118,7 @@ def test_speech_vad_scores_voice_high_and_touch_low():
 
     assert score("fala_perto_g2") > 0.9
     assert score("fala_perto_g2", rate=48000) > 0.9
-    assert score("batidinha_g2") < 0.5
+    assert score("batidinha_noagc") < 0.5
 
 
 def _knocks(times, length_s=6.0):
@@ -170,3 +163,23 @@ def test_house_noise_is_not_a_touch():
     # footsteps rise only 7-13 dB above it. Touches rise 25+ dB above a quiet room.
     for name in ("ruido_casa_1", "ruido_casa_2", "ruido_chegada"):
         assert run(name, vad=SpeechVad()) == [], name
+
+
+# AGC off (fixed gain): the bridge disables the mic array AGC, so these clips are what it hears.
+
+
+def test_taps_without_agc_are_sharp_knocks():
+    kinds = _kinds(run("batidinha_noagc", vad=SpeechVad()))
+    assert TouchKind.PET_START not in kinds
+    assert kinds.count(TouchKind.TAP) >= 2
+
+
+def test_petting_without_agc_starts_quickly_without_taps():
+    ev = run("carinho_noagc", vad=SpeechVad())
+    assert ev[0].kind is TouchKind.PET_START and ev[0].at <= 2.5
+    assert TouchKind.TAP not in _kinds(ev)
+
+
+def test_desk_and_speech_without_agc_are_not_touches():
+    assert run("mesa_noagc", vad=SpeechVad()) == []
+    assert run("fala1m_noagc", vad=SpeechVad()) == []

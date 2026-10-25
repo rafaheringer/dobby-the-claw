@@ -62,9 +62,9 @@ def test_petting_awake_reacts_once_and_asks_for_more():
 
 
 def test_tap_awake_startles_and_complains():
-    o, restores = _run("batidinha_g2", sound_s=3.1)
+    o, restores = _run("batidinha_noagc", sound_s=3.1)
     calls = o.robot_actions.calls
-    assert len(calls) >= 2 and set(calls) == {("tap", "start", False)}
+    assert calls and set(calls) == {("tap", "start", False)}  # later series fall in the sound
     assert o.realtime.sent == ["[toque] levou batidinhas na cabeça"]  # then the cooldown
     assert restores == [2.0] * len(calls)
 

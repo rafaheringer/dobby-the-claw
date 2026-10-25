@@ -12,7 +12,7 @@ orchestrator feeds mic chunks and acts on the returned events.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -26,12 +26,14 @@ _PET_SPAN_S = 1.5  # loud windows are counted within this span
 _PET_MIN_WINDOWS = 3
 _PET_SUSTAIN_WINDOWS = 3  # this many consecutive loud windows: a rubbing hand, never a tap
 _PET_SETTLE_S = 1.0  # sparse loud windows are petting once they spread this long without a burst
-_TAP_BURST_WINDOWS = 5  # this many loud windows within the span, none sustained: tapping
 _PET_END_S = 2.0  # petting ends after this long without a loud window
 _TAP_HOLD_S = 1.0  # taps are emitted after this long without a hit (petting may still show up)
 _TAP_MIN_KNOCKS = 3  # taps come in series; one or two knocks are a chime or a bump on the table
 _TAP_MAX_GAP_S = 0.6  # knocks further apart are separate series (measured 0.2-0.5 s)
 _TAP_CADENCE = 2.0  # every gap within this factor of the median gap: steady, unlike typing
+_KNOCK_FRAME_S = 0.005
+_KNOCK_MAX_WIDTH_S = 0.025  # a knock stays within 10 dB of its peak ~20 ms; a stroke ~35 ms
+_TAP_SHARP_SHARE = 0.75  # taps: nearly every peak of the series is a knock (strokes: ~40%)
 _TAP_AFTER_PET_S = 3.0  # stray hits right after petting are its tail, not taps
 _SPEECH_PROB = 0.5  # VAD probability above which a window is someone talking, not a touch
 _SPEECH_MASK_S = 0.5  # windows this long after speech are masked too (syllable gaps, plosives)
@@ -116,6 +118,7 @@ class TouchDetector:
         self._vad = vad
         self._speech_until = float("-inf")
         self._buffer = np.zeros(0, dtype=np.float32)
+        self._previous = np.zeros(0, dtype=np.float32)  # last window, context for knock shape
         self._reset()
 
     @property
@@ -126,14 +129,13 @@ class TouchDetector:
     def _reset(self) -> None:
         self._buffer = np.zeros(0, dtype=np.float32)
         self._loud: deque[float] = deque()
-        self._strong: deque[float] = deque()  # loud windows also above the knock level
+        self._strong: deque[tuple[float, bool]] = deque()  # (time, sharp) of windows above knock level
         self._run = 0  # consecutive loud windows
         self._last_loud = float("-inf")
         self._pet_started_at: float | None = None
         self._pet_ended_at = float("-inf")
-        self._knocks: list[float] = []  # onsets of the pending tap series
+        self._knocks: list[tuple[float, bool]] = []  # (onset, sharp) of the pending tap series
         self._was_hit = False
-        self._tapping = False
 
     def observe(
         self,
@@ -174,8 +176,8 @@ class TouchDetector:
         return events
 
     def _window(self, window: np.ndarray, at: float, sample_rate: int) -> list[TouchEvent]:
-        # Petting: sustained loud windows, or sparse ones spreading over a second. Taps: a steady
-        # series of knocks (one or two loud windows each, silence in between, ~4/s).
+        # Petting: sustained loud windows, or strong strokes spreading over a second. Taps: a steady
+        # series of knocks (sharp peaks, silence in between, ~4/s).
         events: list[TouchEvent] = []
         if self._vad is not None and self._vad(window, sample_rate) >= _SPEECH_PROB:
             self._speech_until = at + _SPEECH_MASK_S
@@ -187,15 +189,18 @@ class TouchDetector:
         if talking or (loud and _hiss_share(window, sample_rate) > _HISS_SHARE):
             loud = False
         hit = loud and rms > self._tap_rms
+        knock = hit and _peak_width_s(self._previous, window, sample_rate) <= _KNOCK_MAX_WIDTH_S
+        self._previous = window
         self._run = self._run + 1 if loud else 0
         if loud:
             self._last_loud = at
             self._loud.append(at)
         if hit:
-            self._strong.append(at)
-        for times in (self._loud, self._strong):
-            while times and at - times[0] > _PET_SPAN_S:
-                times.popleft()
+            self._strong.append((at, knock))
+        while self._loud and at - self._loud[0] > _PET_SPAN_S:
+            self._loud.popleft()
+        while self._strong and at - self._strong[0][0] > _PET_SPAN_S:
+            self._strong.popleft()
 
         if self._pet_started_at is not None:
             if at - self._last_loud >= _PET_END_S:
@@ -208,27 +213,27 @@ class TouchDetector:
 
         onset, self._was_hit = hit and not self._was_hit, hit
         if onset and at - self._pet_ended_at >= _TAP_AFTER_PET_S:
-            if self._knocks and at - self._knocks[-1] > _TAP_MAX_GAP_S:
+            if self._knocks and at - self._knocks[-1][0] > _TAP_MAX_GAP_S:
                 self._knocks = []
-            self._knocks.append(at)
-        if len(self._loud) >= _TAP_BURST_WINDOWS or _steady_series(self._knocks):
-            self._tapping = True
-        # Sparse petting needs strong windows: footsteps or a door barely clear the petting level.
-        settled = len(self._strong) >= _PET_MIN_WINDOWS and at - self._strong[0] >= _PET_SETTLE_S
-        if self._run >= _PET_SUSTAIN_WINDOWS or (settled and not self._tapping):
+            self._knocks.append((at, knock))
+        tapping = _steady_series(self._knocks)
+        # Sparse petting needs strong strokes: footsteps or a door barely clear the petting level,
+        # and a run of sharp knocks is tapping (or a bump), not a hand.
+        settled = (
+            len(self._strong) >= _PET_MIN_WINDOWS
+            and at - self._strong[0][0] >= _PET_SETTLE_S
+            and _sharp_share(self._strong) < _TAP_SHARP_SHARE
+        )
+        if self._run >= _PET_SUSTAIN_WINDOWS or (settled and not tapping):
             self._pet_started_at = self._loud[0]
             self._knocks = []
-            self._tapping = False
             events.append(TouchEvent(TouchKind.PET_START, at))
-        elif self._knocks and at - self._knocks[-1] >= _TAP_HOLD_S:
+        elif self._knocks and at - self._knocks[-1][0] >= _TAP_HOLD_S:
             if _steady_series(self._knocks):
                 events.append(TouchEvent(TouchKind.TAP, at))
             self._knocks = []
-            self._tapping = False
             self._loud.clear()
             self._strong.clear()
-        elif self._tapping and at - self._last_loud >= _TAP_HOLD_S:
-            self._tapping = False
         return events
 
     def _pet_end(self, at: float, interrupted: bool = False) -> TouchEvent:
@@ -245,10 +250,34 @@ def _hiss_share(window: np.ndarray, sample_rate: int) -> float:
     return float(power[freqs > _HISS_HZ].sum()) / total if total > 0 else 0.0
 
 
-def _steady_series(knocks: list[float]) -> bool:
+def _peak_width_s(previous: np.ndarray, window: np.ndarray, sample_rate: int) -> float:
+    """How long the loudest 5 ms frame of `window` stays within 10 dB (frames run on into `previous`)."""
+    size = max(1, int(sample_rate * _KNOCK_FRAME_S))
+    audio = np.concatenate([previous, window])
+    frames = audio[: len(audio) // size * size].reshape(-1, size)
+    energy = 10 * np.log10(np.maximum(np.mean(frames**2, axis=1), 1e-12))
+    first = len(previous) // size
+    peak = first + int(np.argmax(energy[first:]))
+    above = energy > energy[peak] - 10
+    start = end = peak
+    while start > 0 and above[start - 1]:
+        start -= 1
+    while end + 1 < len(above) and above[end + 1]:
+        end += 1
+    return (end - start + 1) * _KNOCK_FRAME_S
+
+
+def _sharp_share(peaks: Iterable[tuple[float, bool]]) -> float:
+    flags = [sharp for _, sharp in peaks]
+    return sum(flags) / len(flags)
+
+
+def _steady_series(knocks: list[tuple[float, bool]]) -> bool:
     if len(knocks) < _TAP_MIN_KNOCKS:
         return False
-    gaps = np.diff(knocks)
+    if _sharp_share(knocks) < _TAP_SHARP_SHARE:
+        return False  # strokes of a petting hand, not knocks
+    gaps = np.diff([at for at, _ in knocks])
     median = float(np.median(gaps))
     return bool(np.all(gaps <= median * _TAP_CADENCE) and np.all(gaps >= median / _TAP_CADENCE))
 
