@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { CameraCard } from "../home/CameraCard";
 import { Indicators } from "../home/Indicators";
 import { useLive } from "../live/store";
+import { robotLink } from "../robot";
 import { TwinSlot } from "../twin/TwinSlot";
 import { Card, CardHeader } from "../ui/Surface";
 import { PageTitle } from "../ui/PageTitle";
@@ -36,9 +37,23 @@ function RecentChat() {
 }
 
 function TwinCard() {
+  const { simulated, mode } = robotLink.useLinkState();
   return (
     <Card className="overflow-hidden">
-      <CardHeader end={<span className="label">Simulado</span>}>Gêmeo digital</CardHeader>
+      <CardHeader
+        end={
+          simulated ? (
+            <span className="label">Simulado</span>
+          ) : (
+            <span className="label flex items-center gap-1.5 text-text">
+              <span className="size-1.5 rounded-full bg-accent" />
+              {mode === "manual" ? "Manual" : "Ao vivo"}
+            </span>
+          )
+        }
+      >
+        Gêmeo digital
+      </CardHeader>
       <div className="bg-subtle">
         <TwinSlot className="mx-auto aspect-square w-full max-w-[280px] lg:aspect-[16/10] lg:max-w-none" />
       </div>

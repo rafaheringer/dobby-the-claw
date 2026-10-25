@@ -554,6 +554,10 @@ class MotionManager:
         except Exception as exc:
             logger.warning("Failed to set robot target: %s", exc, exc_info=True)
 
+    def commanded_pose(self) -> FullBodyPose:
+        """The pose last sent to the robot (head 4x4, antennas, body yaw); safe from any thread."""
+        return clone_full_body_pose(self._last_commanded_pose)
+
     def get_status(self) -> Dict[str, Any]:
         """Return movement status snapshot for diagnostics."""
         return {

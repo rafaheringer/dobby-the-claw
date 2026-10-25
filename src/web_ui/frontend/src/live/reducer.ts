@@ -61,6 +61,8 @@ export function reduce(s: LiveState, m: ServerMessage, now: number = Date.now() 
       const entry = { text: m.text, hit: m.hit, silent: m.silent, t: now };
       return { ...s, wakeTest: { ...s.wakeTest, recording: false, thinking: false, tries: [entry, ...s.wakeTest.tries].slice(0, MAX_TRIES) } };
     }
+    case "robot":
+      return s; // 15 a second: routed straight to the robot link (store.ts), never through React state
     case "error": {
       // The server answers a refused wake test (detector off, test already running) with an error.
       const wakeTest = { ...s.wakeTest, recording: false, thinking: false };

@@ -53,7 +53,7 @@ export default function Layout() {
       >
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="pt-safe sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-surface px-4 pb-2.5 pt-2.5 lg:hidden">
+        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-surface px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] lg:hidden">
           <span className="font-mono text-base font-semibold tracking-[0.08em]">DOBBY</span>
           <div className="flex items-center gap-2">
             <StatePill />

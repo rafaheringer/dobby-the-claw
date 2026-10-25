@@ -14,7 +14,7 @@ import re
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Optional
 
 import cv2
 from aiohttp import WSMsgType, web
@@ -23,6 +23,7 @@ from bridge.status_checks import check_service_up, get_pi_stats
 from web_ui.access import AccessPolicy, AccessVerifier, make_guard
 from web_ui.frontend_routes import FRONTEND_DIST, add_frontend_routes, warn_if_missing
 from web_ui.logbus import CATEGORIES, LogLine, redact
+from web_ui.robot_control import RobotControl
 
 if TYPE_CHECKING:
     from bridge.config import BridgeConfig
@@ -38,6 +39,7 @@ _VIDEO_PERIOD_S = 0.125
 _VIDEO_MAX_WIDTH = 1280
 _USER_TEXT = re.compile(r"User (said|typed): (.*)", re.S)
 _LOG_LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO}
+_ROBOT_PERIOD_S = 1 / 15  # pose stream to the 3D twin
 
 
 class Hub:
@@ -62,6 +64,11 @@ class Hub:
         self._fps_since = time.monotonic()
         self.fps = 0.0
         self._seq = 0
+        self.robot = RobotControl(
+            orchestrator.motion_manager,
+            orchestrator.tool_runtime.execute,
+            lambda: bool(orchestrator.sleeping or orchestrator.transitioning),
+        )
         provider = config.conversation_provider
         self.model = f"{provider} · {config.gemini_live_model if provider == 'gemini' else config.realtime_model}"
 
@@ -100,6 +107,7 @@ class Hub:
             "logs": list(self.logs)[-800:],
             "chat": list(self.chat),
             "status": self.status(),
+            "robot": self.robot.snapshot(),
         }
 
     # ------------------------------------------------------------------ background work
@@ -141,6 +149,31 @@ class Hub:
             if self.clients:
                 await self.broadcast(self.status())
             await asyncio.sleep(1.0)
+
+    async def robot_loop(self) -> None:
+        """Stream the robot's pose to the pages (the 3D twin) and apply manual-mode safety releases."""
+        while True:
+            try:
+                self.robot.tick()
+                if self.clients:
+                    snapshot = self.robot.snapshot()
+                    if snapshot is not None:
+                        await self.broadcast(snapshot)
+            except Exception as exc:
+                logger.debug("Web UI robot stream failed: %s", exc)
+            await asyncio.sleep(_ROBOT_PERIOD_S)
+
+    async def robot_command(self, message: dict, ws: web.WebSocketResponse) -> Optional[str]:
+        """Manual control from the twin; `ws` owns manual mode until it switches back or disconnects."""
+        kind = message.get("type")
+        if kind == "robot_mode":
+            return self.robot.set_manual(bool(message.get("manual")), ws)
+        if kind == "robot_target" and isinstance(message.get("target"), dict):
+            return self.robot.set_target(message["target"], ws)
+        if kind == "robot_emotion":
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.robot.play_emotion, str(message.get("name", "")), ws)
+        return "mensagem inválida"
 
     async def services_loop(self) -> None:
         cfg = self.config
@@ -275,19 +308,35 @@ async def _ws(request: web.Request) -> web.StreamResponse:
     hub.clients.add(ws)
     identity = request["identity"]
     allowance, last = 10.0, time.monotonic()  # token bucket: 10 commands burst, 5 per second
+    drive, drive_last = 40.0, time.monotonic()  # the twin's controls send up to ~30 targets a second
     try:
         await ws.send_str(json.dumps(hub.hello(), ensure_ascii=False))
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
                 continue
             now = time.monotonic()
-            allowance = min(10.0, allowance + (now - last) * 5.0)
-            last = now
-            if allowance < 1.0:
-                continue
-            allowance -= 1.0
             try:
                 payload = json.loads(msg.data)
+                if isinstance(payload, dict) and str(payload.get("type", "")).startswith("robot_"):
+                    drive = min(40.0, drive + (now - drive_last) * 30.0)
+                    drive_last = now
+                    if drive < 1.0:
+                        continue
+                    drive -= 1.0
+                    if payload.get("type") == "robot_emotion":
+                        task = asyncio.create_task(_reply_error(ws, hub.robot_command(payload, ws)))
+                        hub.tasks.add(task)
+                        task.add_done_callback(hub.tasks.discard)
+                        continue
+                    error = await hub.robot_command(payload, ws)
+                    if error:
+                        await ws.send_str(json.dumps({"type": "error", "text": error}, ensure_ascii=False))
+                    continue
+                allowance = min(10.0, allowance + (now - last) * 5.0)
+                last = now
+                if allowance < 1.0:
+                    continue
+                allowance -= 1.0
                 if isinstance(payload, dict) and str(payload.get("type", "")).startswith("wake_"):
                     task = asyncio.create_task(hub.wake_command(payload, ws))  # recording takes seconds: don't hold the socket
                     hub.tasks.add(task)  # the loop only keeps weak references to tasks
@@ -300,7 +349,14 @@ async def _ws(request: web.Request) -> web.StreamResponse:
                 await ws.send_str(json.dumps({"type": "error", "text": error}, ensure_ascii=False))
     finally:
         hub.clients.discard(ws)
+        hub.robot.release(ws)
     return ws
+
+
+async def _reply_error(ws: web.WebSocketResponse, pending: Awaitable[Optional[str]]) -> None:
+    error = await pending
+    if error and not ws.closed:
+        await ws.send_str(json.dumps({"type": "error", "text": error}, ensure_ascii=False))
 
 
 async def _video(request: web.Request) -> web.StreamResponse:
@@ -368,7 +424,7 @@ def start_web_ui(orchestrator: "RuntimeOrchestrator", config: "BridgeConfig", lo
             "Web UI on http://%s:%d (remote access %s)",
             config.web_ui_host, config.web_ui_port, "guarded by Cloudflare Access" if policy.configured else "OFF: Access not configured",
         )
-        tasks = [asyncio.create_task(coro) for coro in (hub.pump(), hub.status_loop(), hub.services_loop())]
+        tasks = [asyncio.create_task(coro) for coro in (hub.pump(), hub.status_loop(), hub.services_loop(), hub.robot_loop())]
         try:
             await asyncio.Event().wait()
         finally:

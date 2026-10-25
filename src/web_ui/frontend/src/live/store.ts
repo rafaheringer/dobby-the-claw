@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ClientMessage } from "./protocol";
+import type { ClientMessage, RobotSnapshot } from "./protocol";
 import { initialLive, onConnection, reduce, withToast, type LiveState } from "./reducer";
 import { connectLive } from "./socket";
 
@@ -19,11 +19,27 @@ export function send(m: ClientMessage): void {
   if (!link?.send(m)) pushToast("Sem conexão com o Dobby");
 }
 
+/** Like send(), without the toast: for the twin's control stream, which falls back on its own. */
+export function trySend(m: ClientMessage): boolean {
+  return !!link?.send(m);
+}
+
+const robotListeners = new Set<(r: RobotSnapshot | null) => void>();
+
+/** The robot's pose stream (null: this bridge cannot report it). Returns the unsubscribe. */
+export function onRobot(fn: (r: RobotSnapshot | null) => void): () => void {
+  robotListeners.add(fn);
+  return () => robotListeners.delete(fn);
+}
+
 export function startLive(): void {
   if (link) return;
   const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
   link = connectLive(url, {
-    onMessage: (m) => useLive.setState((s) => reduce(s, m)),
+    onMessage: (m) => {
+      if (m.type === "robot" || m.type === "hello") robotListeners.forEach((fn) => fn(m.type === "robot" ? m : m.robot));
+      if (m.type !== "robot") useLive.setState((s) => reduce(s, m));
+    },
     onConnection: (c) => useLive.setState((s) => onConnection(s, c)),
   });
 }

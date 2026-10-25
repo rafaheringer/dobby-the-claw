@@ -2,7 +2,7 @@
 
 A page for the computer or the phone: live camera with detections, conversation, filterable logs,
 service status, controls and settings (a test of the wake word: it shows what Dobby heard), and a 3D
-digital twin of the robot (mocked for now). Installable on the phone's home screen.
+digital twin of the robot that mirrors it live and can drive it by hand. Installable on the phone's home screen.
 
 ## Building the page
 
@@ -14,6 +14,13 @@ required on the PC). Without a build, the page explains which commands to run.
 
 For frontend work, `npm run dev` (hot reload on <http://localhost:5173>) proxies `/ws` and `/api` to the
 running bridge.
+
+The twin draws the pose the bridge streams on `/ws` (`{"type": "robot", ...}`, 15 per second). Its
+**Manual** mode sends `robot_mode`, `robot_target` and `robot_emotion`: the bridge holds the head, antennas
+and body where the controls put them (face tracking and speech sway pause meanwhile), clamps every value to
+safe limits and eases toward it. Manual mode ends with **Auto**, when the page is closed, when Dobby goes to
+sleep, or after five minutes without commands. When the bridge cannot report the robot (offline, no Reachy
+SDK) the twin shows an in-page simulation instead, marked "simulado".
 
 The 3D model is Pollen Robotics' `reachy_mini_viz.glb` (Apache-2.0, see
 `frontend/src/assets/robot/NOTICE.md`), Draco-compressed; its decoder is served from `/draco/`.

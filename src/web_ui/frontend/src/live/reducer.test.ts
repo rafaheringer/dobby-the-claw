@@ -13,7 +13,7 @@ const chat = (n: number): ChatEntry => ({ t: n, who: n % 2 ? "you" : "dobby", te
 describe("reduce", () => {
   it("hello replaces logs, chat, status and categories", () => {
     const before = reduce(initialLive, { type: "logs", lines: [line(1)] });
-    const s = reduce(before, { type: "hello", categories: ["Visão"], logs: [line(7)], chat: [chat(1)], status });
+    const s = reduce(before, { type: "hello", categories: ["Visão"], logs: [line(7)], chat: [chat(1)], status, robot: null });
     expect(s.logs).toEqual([line(7)]);
     expect(s.chat).toEqual([chat(1)]);
     expect(s.status).toEqual(status);

@@ -59,8 +59,16 @@ export default function Twin() {
   const { spring, fade, reduced } = useMotionPreset();
   const failed = useStageStatus((s) => s.failed);
   const target = robotLink.useTarget();
+  const { simulated } = robotLink.useLinkState();
   const close = () => closeTwin(navigate, window.history.state?.idx);
   useTwinKeys();
+  // Leaving the controls hands the robot back to Dobby; a frozen head nobody is driving looks broken.
+  useEffect(
+    () => () => {
+      if (robotLink.state().mode === "manual") robotLink.setManual(false);
+    },
+    [],
+  );
 
   const set = (t: Partial<RobotTarget>) => robotLink.setTarget(t);
   const panel: Variants = {
@@ -86,7 +94,7 @@ export default function Twin() {
           <ChevronLeft className="size-4" /> Voltar
         </Button>
         <div className="flex items-center gap-2">
-          <Pill dot="var(--st-thinking)">simulado</Pill>
+          {simulated ? <Pill dot="var(--st-thinking)">simulado</Pill> : <Pill dot="var(--accent)" pulse>ao vivo</Pill>}
           <ModeSwitch />
         </div>
       </motion.header>
