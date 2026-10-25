@@ -49,18 +49,18 @@ export default function Layout() {
         transition={spring}
         // inert: the invisible app must not take clicks or focus (e.g. the real Sleep button)
         inert={twin || undefined}
-        className="mx-auto flex min-h-dvh max-w-[1500px] gap-4 lg:p-4"
+        className="flex min-h-dvh"
       >
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="pt-safe sticky top-0 z-20 flex items-center justify-between gap-3 px-4 pb-2 pt-3 lg:hidden">
-          <span className="text-lg font-semibold">Dobby</span>
+        <header className="pt-safe sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-surface px-4 pb-2.5 pt-2.5 lg:hidden">
+          <span className="font-mono text-base font-semibold tracking-[0.08em]">DOBBY</span>
           <div className="flex items-center gap-2">
             <StatePill />
             <WakeToggle compact />
           </div>
         </header>
-        <main className="relative flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+96px)] lg:px-2 lg:pb-4">
+        <main className="relative max-w-[1280px] flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-4 lg:px-8 lg:pb-8 lg:pt-7">
           <AnimatePresence mode="popLayout" initial={false} custom={shift}>
             <motion.div
               key={pageKey}

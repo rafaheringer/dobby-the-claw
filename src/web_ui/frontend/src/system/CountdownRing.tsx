@@ -7,7 +7,7 @@ const C = 2 * Math.PI * R;
 export function CountdownRing({ seconds, thinking }: { seconds: number; thinking: boolean }) {
   return (
     <svg viewBox="0 0 120 120" className="size-full -rotate-90">
-      <circle cx="60" cy="60" r={R} fill="none" stroke="rgba(255,255,255,.1)" strokeWidth="6" />
+      <circle cx="60" cy="60" r={R} fill="none" stroke="var(--line)" strokeWidth="6" />
       {thinking ? (
         <motion.circle
           cx="60" cy="60" r={R} fill="none" stroke="var(--st-thinking)" strokeWidth="6" strokeLinecap="round"

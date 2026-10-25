@@ -5,7 +5,7 @@ import { useId } from "react";
 export function Switch({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange(on: boolean): void }) {
   const id = useId();
   return (
-    <div className="flex min-h-11 items-center justify-between gap-4">
+    <div className="flex min-h-12 items-center justify-between gap-4 border-b border-line last:border-0">
       <label htmlFor={id} className={disabled ? "text-dim" : undefined}>
         {label}
       </label>
@@ -14,9 +14,9 @@ export function Switch({ label, checked, disabled, onChange }: { label: string; 
         checked={checked}
         disabled={disabled}
         onCheckedChange={onChange}
-        className="relative h-7 w-12 shrink-0 rounded-full bg-white/15 transition-colors data-[state=checked]:bg-accent disabled:opacity-40"
+        className="relative h-6 w-11 shrink-0 rounded-full border border-ink bg-surface transition-colors data-[state=checked]:bg-accent disabled:opacity-40"
       >
-        <RadixSwitch.Thumb className="block size-6 translate-x-0.5 rounded-full bg-white shadow transition-transform duration-200 data-[state=checked]:translate-x-[22px]" />
+        <RadixSwitch.Thumb className="block size-4 translate-x-[3px] rounded-full bg-ink transition-transform duration-200 data-[state=checked]:translate-x-[23px]" />
       </RadixSwitch.Root>
     </div>
   );

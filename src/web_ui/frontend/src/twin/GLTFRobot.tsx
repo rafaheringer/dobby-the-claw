@@ -180,7 +180,7 @@ export function GLTFRobot({ getPose, headOnly, onBoxes }: Props) {
     });
     const headHeight = headBox.max.y - headBox.min.y;
     const rodsTop = headBox.max.y + headHeight * 0.9; // the rods reach well past their last bone
-    headBox.max.y += headHeight * 0.45; // the close-up may crop the rod tips
+    headBox.max.y = rodsTop; // whole rods: a crop at the card's hard edge looks like a mistake
     const fullBox = new THREE.Box3().setFromObject(model, true);
     fullBox.max.y = Math.max(fullBox.max.y, rodsTop);
     onBoxes({ full: fullBox, head: headBox });

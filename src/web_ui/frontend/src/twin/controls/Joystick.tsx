@@ -36,17 +36,17 @@ export function Joystick({ x, y, label, onChange }: { x: number; y: number; labe
         onPointerMove={(e) => dragging && update(e)}
         onPointerUp={() => setDragging(false)}
         onPointerCancel={() => setDragging(false)}
-        className="relative size-32 touch-none rounded-full border border-glass-border bg-[radial-gradient(circle,rgba(255,255,255,.08),rgba(255,255,255,.02)_70%)] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="relative size-32 touch-none rounded-full border border-ink bg-subtle outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
       >
-        <span className="absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-white/10" />
-        <span className="absolute top-1/2 left-2 right-2 h-px -translate-y-1/2 bg-white/10" />
+        <span className="absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-line" />
+        <span className="absolute top-1/2 left-2 right-2 h-px -translate-y-1/2 bg-line" />
         <motion.span
-          className="absolute left-1/2 top-1/2 -ml-5 -mt-5 size-10 rounded-full bg-accent shadow-[0_0_18px_rgba(154,168,255,.7)]"
+          className="absolute left-1/2 top-1/2 -ml-5 -mt-5 size-10 rounded-full border-2 border-ink bg-accent"
           animate={{ x: x * 44, y: y * 44 }}
           transition={dragging ? { duration: 0 } : spring}
         />
       </div>
-      <span className="text-xs text-dim">{label}</span>
+      <span className="label">{label}</span>
     </div>
   );
 }

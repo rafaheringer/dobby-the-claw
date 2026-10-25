@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Link } from "react-router";
 import { create } from "zustand";
-import { cx } from "../ui/Glass";
+import { cx } from "../ui/Surface";
 import { HeadIllustration } from "./HeadIllustration";
 import { useStageStatus } from "./stageStatus";
 
@@ -24,9 +24,9 @@ export function TwinSlot({ className }: { className?: string }) {
       ref={registerSlot}
       className={cx("relative", className)}
     >
-      {/* soft halo behind the head */}
-      <div className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle,rgba(154,168,255,.28),transparent_68%)]" />
-      <div className="pointer-events-none absolute inset-[8%] rounded-full border border-dashed border-accent/25" />
+      {/* faint crosshair behind the head, like a viewfinder */}
+      <div className="pointer-events-none absolute inset-x-6 top-1/2 h-px bg-line" />
+      <div className="pointer-events-none absolute inset-y-6 left-1/2 w-px bg-line" />
       <AnimatePresence>
         {(!ready || failed) && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 grid place-items-center">

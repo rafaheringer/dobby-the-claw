@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { send, useLive } from "../live/store";
 import { ServiceRow } from "../system/ServiceRow";
 import { serviceRows } from "../system/services";
-import { Panel } from "../ui/Glass";
+import { Panel } from "../ui/Surface";
 import { PageTitle } from "../ui/PageTitle";
 import { Switch } from "../ui/Switch";
 
@@ -33,8 +33,8 @@ export default function System() {
             onChange={(on) => send({ type: "log_level", level: on ? "DEBUG" : "INFO" })}
           />
         </Panel>
-        <Link to="/sistema/nome" className="glass flex min-h-14 items-center gap-3 rounded-3xl px-4 transition-colors hover:bg-glass-strong">
-          <span className="grid size-9 place-items-center rounded-full bg-accent/20 text-accent">
+        <Link to="/sistema/nome" className="surface flex min-h-14 items-center gap-3 px-4 transition-colors hover:border-ink">
+          <span className="grid size-9 place-items-center bg-accent text-accent-ink">
             <Mic className="size-4" />
           </span>
           <span className="flex-1 font-medium">Teste do nome</span>

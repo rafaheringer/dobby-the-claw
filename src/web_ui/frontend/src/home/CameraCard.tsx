@@ -7,7 +7,7 @@ import { useLive } from "../live/store";
 import { loadPref, savePref } from "../lib/storage";
 import { usePageVisible } from "../lib/usePageVisible";
 import { streamWidth, videoUrl } from "../lib/video";
-import { Card, cx } from "../ui/Glass";
+import { Card, CardHeader, cx } from "../ui/Surface";
 import { Menu } from "../ui/Menu";
 
 const OVERLAYS_KEY = "dobby.overlays";
@@ -68,7 +68,34 @@ export function CameraCard({ className }: { className?: string }) {
 
   return (
     <Card className={cx("relative overflow-hidden", className)}>
-      <div ref={frame} className="relative aspect-video w-full bg-black/30">
+      <CardHeader
+        className="pr-1"
+        end={
+          <div className="flex items-center gap-2">
+            {showImage && (
+              <span className="label flex items-center gap-1.5 text-text">
+                <span className="size-1.5 rounded-full bg-accent" />
+                Ao vivo
+              </span>
+            )}
+            <Menu
+              trigger={
+                <button aria-label="Opções da câmera" className="grid size-8 place-items-center text-dim hover:bg-subtle hover:text-text">
+                  <Ellipsis className="size-4" />
+                </button>
+              }
+              items={[
+                { label: "Pessoas", checked: overlays.people, onSelect: () => toggle("people") },
+                { label: "Voz", checked: overlays.voice, onSelect: () => toggle("voice") },
+                { label: "Rastreio", checked: overlays.tracking, onSelect: () => toggle("tracking") },
+              ]}
+            />
+          </div>
+        }
+      >
+        Câmera
+      </CardHeader>
+      <div ref={frame} className="relative aspect-video w-full bg-[#ededed]">
         {src && (
           <img
             key={src}
@@ -84,7 +111,7 @@ export function CameraCard({ className }: { className?: string }) {
         )}
         <AnimatePresence>
           {!showImage && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} className="absolute inset-0 grid place-items-center text-sm text-dim">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} className="absolute inset-0 grid place-items-center font-mono text-xs uppercase tracking-[0.08em] text-dim">
               <span className="flex items-center gap-2">
                 {!enabled && status && <CameraOff className="size-4" />}
                 {message}
@@ -92,20 +119,6 @@ export function CameraCard({ className }: { className?: string }) {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="absolute right-2 top-2">
-          <Menu
-            trigger={
-              <button aria-label="Opções da câmera" className="glass grid size-9 place-items-center rounded-full bg-black/30">
-                <Ellipsis className="size-4" />
-              </button>
-            }
-            items={[
-              { label: "Pessoas", checked: overlays.people, onSelect: () => toggle("people") },
-              { label: "Voz", checked: overlays.voice, onSelect: () => toggle("voice") },
-              { label: "Rastreio", checked: overlays.tracking, onSelect: () => toggle("tracking") },
-            ]}
-          />
-        </div>
       </div>
     </Card>
   );

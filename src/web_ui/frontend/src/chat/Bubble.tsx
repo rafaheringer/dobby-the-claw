@@ -1,7 +1,7 @@
 import { motion } from "motion/react";
 import { useMotionPreset } from "../app/motion";
 import type { ChatEntry } from "../live/protocol";
-import { cx } from "../ui/Glass";
+import { cx } from "../ui/Surface";
 
 const time = (t: number) => new Date(t * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
@@ -18,13 +18,13 @@ export function Bubble({ entry }: { entry: ChatEntry }) {
     >
       <div
         className={cx(
-          "whitespace-pre-wrap break-words rounded-3xl px-4 py-2.5 text-[15px] leading-snug",
-          mine ? "rounded-br-lg bg-accent text-accent-ink" : "glass rounded-bl-lg",
+          "whitespace-pre-wrap break-words px-4 py-2.5 text-[15px] leading-snug",
+          mine ? "bg-ink text-white" : "surface shadow-[inset_3px_0_0_var(--accent)]",
         )}
       >
         {entry.text}
       </div>
-      <span className="px-2 text-[11px] text-dim">
+      <span className="label px-0.5 text-[10px]">
         {mine ? "Você" : "Dobby"} · {time(entry.t)}
       </span>
     </motion.li>

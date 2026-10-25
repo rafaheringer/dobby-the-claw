@@ -5,7 +5,7 @@ import { useMotionPreset } from "../app/motion";
 import { pushToast, send, useLive } from "../live/store";
 import { CountdownRing } from "../system/CountdownRing";
 import { Button } from "../ui/Button";
-import { Card, cx } from "../ui/Glass";
+import { Card, cx } from "../ui/Surface";
 import { PageTitle } from "../ui/PageTitle";
 
 const GUARD_EXTRA_S = 15;
@@ -71,7 +71,7 @@ export default function SystemWake() {
             disabled={busy || !open}
             onClick={start}
             aria-label="Testar"
-            className="absolute inset-4 grid place-items-center rounded-full bg-accent text-accent-ink shadow-[0_0_40px_rgba(154,168,255,.35)] disabled:opacity-60"
+            className="absolute inset-4 grid place-items-center rounded-full bg-accent text-accent-ink disabled:opacity-60"
           >
             <Mic className="size-10" />
           </motion.button>
@@ -91,7 +91,7 @@ export default function SystemWake() {
           {test.tries.map((t) => (
             <motion.li key={t.t} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={spring}>
               <Card className="flex items-center gap-3 px-4 py-3 text-sm">
-                <span className={cx("grid size-7 shrink-0 place-items-center rounded-full", t.hit ? "bg-st-listening/20 text-st-listening" : "bg-st-error/20 text-st-error")}>
+                <span className={cx("grid size-7 shrink-0 place-items-center rounded-full", t.hit ? "bg-ok text-white" : "bg-st-error text-white")}>
                   {t.hit ? <Check className="size-4" /> : <X className="size-4" />}
                 </span>
                 {tryText(t)}

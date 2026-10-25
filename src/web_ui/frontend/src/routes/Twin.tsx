@@ -11,7 +11,7 @@ import { Joystick } from "../twin/controls/Joystick";
 import { LinearSlider } from "../twin/controls/LinearSlider";
 import { keyDelta } from "../twin/keys";
 import { Button } from "../ui/Button";
-import { cx } from "../ui/Glass";
+import { cx } from "../ui/Surface";
 import { Pill } from "../ui/Pill";
 import { HeadIllustration } from "../twin/HeadIllustration";
 import { useStageStatus } from "../twin/stageStatus";
@@ -37,15 +37,15 @@ function useTwinKeys() {
 function ModeSwitch() {
   const { mode } = robotLink.useLinkState();
   return (
-    <div className="glass flex h-8 rounded-full p-0.5 text-xs font-medium">
+    <div className="flex h-8 border border-ink bg-surface font-mono text-[11px] font-medium uppercase tracking-[0.08em]">
       {(["auto", "manual"] as const).map((m) => (
         <button
           key={m}
           onClick={() => robotLink.setManual(m === "manual")}
           aria-pressed={mode === m}
-          className={cx("relative rounded-full px-3", mode === m ? "text-accent-ink" : "text-dim")}
+          className={cx("relative px-3", mode === m ? "text-white" : "text-dim")}
         >
-          {mode === m && <motion.span layoutId="twin-mode" className="absolute inset-0 rounded-full bg-accent" />}
+          {mode === m && <motion.span layoutId="twin-mode" className="absolute inset-0 bg-ink" />}
           <span className="relative">{m === "auto" ? "Auto" : "Manual"}</span>
         </button>
       ))}
@@ -82,7 +82,7 @@ export default function Twin() {
         onDragEnd={(_, info) => info.offset.y > SWIPE_CLOSE_PX && close()}
         className="pointer-events-auto flex touch-none items-center justify-between gap-2 px-4 pb-2 pt-[calc(env(safe-area-inset-top)+12px)] lg:mr-[384px] lg:pt-4"
       >
-        <Button onClick={close} aria-label="Voltar">
+        <Button size="sm" onClick={close} aria-label="Voltar">
           <ChevronLeft className="size-4" /> Voltar
         </Button>
         <div className="flex items-center gap-2">
@@ -94,7 +94,7 @@ export default function Twin() {
       {failed && (
         <div className="pointer-events-auto mx-4 mt-6 flex flex-col items-center gap-3 text-center lg:mr-[400px]">
           <HeadIllustration className="w-28 opacity-80" />
-          <p className="glass rounded-2xl px-4 py-3 text-sm text-dim">O Dobby em 3D não pode ser mostrado neste aparelho. Os controles continuam funcionando.</p>
+          <p className="surface px-4 py-3 text-sm text-dim">O Dobby em 3D não pode ser mostrado neste aparelho. Os controles continuam funcionando.</p>
         </div>
       )}
       <motion.section
@@ -104,8 +104,8 @@ export default function Twin() {
         exit="exit"
         aria-label="Controles"
         className={cx(
-          "glass pointer-events-auto mt-auto overflow-y-auto rounded-t-[28px] bg-[#151931]/75 p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]",
-          "h-[44dvh] lg:absolute lg:bottom-4 lg:right-4 lg:top-4 lg:mt-0 lg:h-auto lg:w-[368px] lg:rounded-[28px]",
+          "pointer-events-auto mt-auto overflow-y-auto border-t border-ink bg-surface p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]",
+          "h-[44dvh] lg:absolute lg:bottom-0 lg:right-0 lg:top-0 lg:mt-0 lg:h-auto lg:w-[368px] lg:border-l lg:border-t-0 lg:px-5 lg:py-7",
         )}
       >
         <div className="mx-auto flex max-w-md flex-col gap-4">

@@ -27,7 +27,7 @@ export function Toasts() {
             exit={{ opacity: 0, y: -12, scale: 0.96 }}
             transition={spring}
             onClick={() => dismissToast(t.id)}
-            className="glass pointer-events-auto max-w-sm rounded-2xl bg-[#1d2140]/80 px-4 py-3 text-sm shadow-lg"
+            className="pointer-events-auto max-w-sm bg-ink px-4 py-3 text-left font-mono text-xs text-white shadow-[4px_4px_0_var(--accent)]"
           >
             {t.text}
           </motion.button>

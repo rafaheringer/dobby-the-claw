@@ -8,7 +8,7 @@ export interface MenuItem {
   onSelect(): void;
 }
 
-/** A small glass dropdown opened by `trigger`. */
+/** A small boxed dropdown opened by `trigger`. */
 export function Menu({ trigger, items, align = "end" }: { trigger: ReactNode; items: MenuItem[]; align?: "start" | "end" }) {
   return (
     <DropdownMenu.Root>
@@ -17,11 +17,11 @@ export function Menu({ trigger, items, align = "end" }: { trigger: ReactNode; it
         <DropdownMenu.Content
           align={align}
           sideOffset={8}
-          className="glass z-50 min-w-44 rounded-2xl bg-[#1d2140]/85 p-1.5 text-sm shadow-xl data-[state=open]:animate-[menu-in_.15s_ease-out]"
+          className="z-50 min-w-44 border border-ink bg-surface p-1 text-sm shadow-[4px_4px_0_var(--ink)] data-[state=open]:animate-[menu-in_.12s_ease-out]"
         >
           {items.map((item) =>
             item.checked === undefined ? (
-              <DropdownMenu.Item key={item.label} onSelect={item.onSelect} className="cursor-pointer rounded-xl px-3 py-2 outline-none data-highlighted:bg-white/10">
+              <DropdownMenu.Item key={item.label} onSelect={item.onSelect} className="cursor-pointer px-3 py-2 outline-none data-highlighted:bg-subtle">
                 {item.label}
               </DropdownMenu.Item>
             ) : (
@@ -32,7 +32,7 @@ export function Menu({ trigger, items, align = "end" }: { trigger: ReactNode; it
                   e.preventDefault(); // keep the menu open while toggling several options
                   item.onSelect();
                 }}
-                className="flex cursor-pointer items-center justify-between gap-6 rounded-xl px-3 py-2 outline-none data-highlighted:bg-white/10"
+                className="flex cursor-pointer items-center justify-between gap-6 px-3 py-2 outline-none data-highlighted:bg-subtle"
               >
                 {item.label}
                 <DropdownMenu.ItemIndicator>

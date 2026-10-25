@@ -1,41 +1,58 @@
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
 
+/* Instrument panel: white, black ink, hairlines, one orange signal color. Light only. */
 :root {
-  color-scheme: dark;
-  --accent: #9aa8ff;
-  --accent-ink: #161a2c;
-  --st-listening: #7cf0c5;
-  --st-thinking: #ffc56b;
-  --st-executing: #9aa8ff;
-  --st-confirming: #ffc56b;
-  --st-sleeping: #8a90a8;
-  --st-error: #ff7a85;
-  --glass-bg: rgba(255, 255, 255, 0.07);
-  --glass-bg-strong: rgba(255, 255, 255, 0.12);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --text: #eef0ff;
-  --text-dim: #aab0d6;
-  --bg-0: #2c3266;
-  --bg-1: #161a2c;
-  --bg-2: #0f111b;
+  color-scheme: light;
+  --accent: #ff5a1f;
+  --accent-ink: #111111;
+  --ink: #111111;
+  --ok: #15803d;
+  --st-listening: #ff5a1f;
+  --st-thinking: #a16207;
+  --st-executing: #2563eb;
+  --st-confirming: #a16207;
+  --st-sleeping: #8a8a8a;
+  --st-error: #dc2626;
+  --surface: #ffffff;
+  --subtle: #f4f4f4;
+  --line: #e2e2e2;
+  --text: #111111;
+  --text-dim: #666666;
+  --bg: #ffffff;
 }
 
 @theme {
-  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
+  --color-ink: var(--ink);
+  --color-ok: var(--ok);
   --color-st-listening: var(--st-listening);
   --color-st-thinking: var(--st-thinking);
   --color-st-executing: var(--st-executing);
   --color-st-confirming: var(--st-confirming);
   --color-st-sleeping: var(--st-sleeping);
   --color-st-error: var(--st-error);
-  --color-glass: var(--glass-bg);
-  --color-glass-strong: var(--glass-bg-strong);
-  --color-glass-border: var(--glass-border);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
   --color-text: var(--text);
   --color-dim: var(--text-dim);
+  /* near-square corners everywhere; rounded-full stays round (dots, knobs) */
+  --radius-xs: 1px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --radius-xl: 3px;
+  --radius-2xl: 4px;
+  --radius-3xl: 4px;
 }
 
 html,
@@ -47,26 +64,39 @@ body,
 body {
   margin: 0;
   color: var(--text);
-  background-color: var(--bg-2);
-  background-image: radial-gradient(120% 70% at 30% 0%, var(--bg-0) 0%, var(--bg-1) 55%, var(--bg-2) 100%);
-  background-attachment: fixed;
+  background: var(--bg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
 
-@utility glass {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* every card, bar and panel */
+@utility surface {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+/* small instrument label: mono, upper case, spaced */
+@utility label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 @keyframes menu-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.97);
+    transform: translateY(-4px);
   }
 }
 

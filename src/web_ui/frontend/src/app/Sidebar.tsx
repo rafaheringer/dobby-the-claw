@@ -1,41 +1,37 @@
-import { motion } from "motion/react";
 import { Link, useLocation } from "react-router";
-import { Card } from "../ui/Glass";
-import { useMotionPreset } from "./motion";
 import { NAV } from "./nav";
 import { sectionIndex } from "./routes";
 import { StatePill } from "./StatePill";
 import { WakeToggle } from "./WakeToggle";
 
-/** Desktop navigation. */
+/** Desktop navigation: a full-height column with numbered sections, like the keys on a device. */
 export function Sidebar() {
   const { pathname } = useLocation();
   const active = sectionIndex(pathname);
-  const { spring } = useMotionPreset();
   return (
-    <Card className="sticky top-4 hidden h-[calc(100dvh-2rem)] w-60 shrink-0 flex-col p-4 lg:flex">
-      <div className="mb-6 flex items-center gap-3 px-2 pt-1">
-        <img src="/icon.svg" alt="" className="size-9 rounded-xl" />
-        <span className="text-lg font-semibold">Dobby</span>
+    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-8 border-r border-line px-5 py-7 lg:flex">
+      <div className="flex flex-col gap-1">
+        <span className="font-mono text-xl font-semibold tracking-[0.08em]">DOBBY</span>
+        <span className="label">Reachy Mini · 01</span>
       </div>
-      <nav className="flex flex-col gap-1">
-        {NAV.map(({ path, label, Icon }, i) => (
+      <nav className="flex flex-col gap-0.5 font-mono text-[13px] tracking-[0.06em]">
+        {NAV.map(({ path, label }, i) => (
           <Link
             key={path}
             to={path}
             aria-current={i === active ? "page" : undefined}
-            className={`relative flex h-11 items-center gap-3 rounded-2xl px-3 text-sm font-medium ${i === active ? "text-text" : "text-dim hover:text-text"}`}
+            className={`flex h-11 items-center gap-3.5 px-3 uppercase transition-colors ${i === active ? "bg-ink text-white" : "hover:bg-subtle"}`}
           >
-            {i === active && <motion.span layoutId="side-indicator" transition={spring} className="absolute inset-0 rounded-2xl bg-white/10" />}
-            <Icon className={`relative size-[18px] ${i === active ? "text-accent" : ""}`} />
-            <span className="relative">{label}</span>
+            <span className={i === active ? "text-accent" : "text-dim"}>{String(i + 1).padStart(2, "0")}</span>
+            {label}
           </Link>
         ))}
       </nav>
       <div className="mt-auto flex flex-col gap-3">
+        <span className="label">Estado</span>
         <StatePill className="self-start" />
         <WakeToggle className="w-full" />
       </div>
-    </Card>
+    </aside>
   );
 }

@@ -66,14 +66,14 @@ export function CircularSlider({ label, value, min, max, onChange }: Props) {
         onPointerCancel={() => (dragging.current = false)}
         className="size-20 touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <path d={arc(START, START + SWEEP)} fill="none" stroke="rgba(255,255,255,.12)" strokeWidth="6" strokeLinecap="round" />
-        <path d={at >= mid ? arc(mid, at) : arc(at, mid)} fill="none" stroke="var(--accent)" strokeOpacity=".75" strokeWidth="6" strokeLinecap="round" />
-        <circle cx={kx} cy={ky} r="7" fill="#fff" />
-        <text x="40" y="44" textAnchor="middle" fontSize="11" fill="var(--text-dim)" className="tabular">
+        <path d={arc(START, START + SWEEP)} fill="none" stroke="var(--line)" strokeWidth="4" strokeLinecap="butt" />
+        <path d={at >= mid ? arc(mid, at) : arc(at, mid)} fill="none" stroke="var(--ink)" strokeWidth="4" strokeLinecap="butt" />
+        <circle cx={kx} cy={ky} r="6" fill="var(--accent)" stroke="var(--ink)" strokeWidth="2" />
+        <text x="40" y="44" textAnchor="middle" fontSize="11" fill="var(--text)" className="font-mono tabular">
           {Math.round((value * 180) / Math.PI)}°
         </text>
       </svg>
-      <span className="text-xs text-dim">{label}</span>
+      <span className="label">{label}</span>
     </div>
   );
 }

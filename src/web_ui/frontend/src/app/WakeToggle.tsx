@@ -12,7 +12,8 @@ export function WakeToggle({ className, compact = false }: { className?: string;
     <Button
       className={className}
       icon={compact}
-      variant={asleep ? "primary" : "glass"}
+      size={compact ? "sm" : "md"}
+      variant={asleep ? "primary" : "outline"}
       busy={!!status?.transition}
       disabled={!open || !status}
       aria-label={label}

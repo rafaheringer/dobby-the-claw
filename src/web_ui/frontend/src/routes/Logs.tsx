@@ -4,7 +4,7 @@ import { useLive } from "../live/store";
 import { matchLog, parseLogParams, toLogParams, type LogFilter } from "../lib/logFilter";
 import { LogList } from "../logs/LogList";
 import { LogToolbar } from "../logs/LogToolbar";
-import { Card } from "../ui/Glass";
+import { Card } from "../ui/Surface";
 import { PageTitle } from "../ui/PageTitle";
 
 export default function Logs() {
@@ -23,7 +23,7 @@ export default function Logs() {
   }, [source, filter, clearedAt]);
 
   return (
-    <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-10.5rem)] flex-col lg:h-[calc(100dvh-3rem)]">
+    <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-10rem)] flex-col lg:h-[calc(100dvh-3.75rem)]">
       <PageTitle>Logs</PageTitle>
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <LogToolbar

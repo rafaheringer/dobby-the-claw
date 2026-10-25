@@ -1,21 +1,29 @@
 import { motion, type HTMLMotionProps } from "motion/react";
 import type { ReactNode } from "react";
 import { spring } from "../app/motion";
-import { cx } from "./Glass";
+import { cx } from "./Surface";
 
-type Props = Omit<HTMLMotionProps<"button">, "children"> & { variant?: "glass" | "primary"; busy?: boolean; icon?: boolean; children?: ReactNode };
+// "sm" matches the height of a Pill, for buttons that sit next to one in a bar.
+type Props = Omit<HTMLMotionProps<"button">, "children"> & {
+  variant?: "outline" | "primary";
+  size?: "md" | "sm";
+  busy?: boolean;
+  icon?: boolean;
+  children?: ReactNode;
+};
 
-export function Button({ variant = "glass", busy = false, icon = false, disabled, className, children, ...rest }: Props) {
+export function Button({ variant = "outline", size = "md", busy = false, icon = false, disabled, className, children, ...rest }: Props) {
   return (
     <motion.button
-      whileTap={{ scale: 0.96 }}
+      whileTap={{ scale: 0.97 }}
       transition={spring}
       disabled={disabled || busy}
       className={cx(
-        "inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors",
-        icon ? "w-10" : "px-4",
-        "disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent",
-        variant === "primary" ? "bg-accent text-accent-ink hover:brightness-110" : "glass hover:bg-glass-strong",
+        "inline-flex shrink-0 items-center justify-center gap-2 border font-mono text-xs font-medium uppercase tracking-[0.08em] transition-colors",
+        size === "sm" ? "h-8" : "h-10",
+        icon ? (size === "sm" ? "w-8" : "w-10") : size === "sm" ? "px-3" : "px-4",
+        "disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        variant === "primary" ? "border-ink bg-ink text-white hover:bg-[#333]" : "border-ink bg-surface text-ink hover:bg-subtle",
         className,
       )}
       {...rest}

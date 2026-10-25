@@ -2,7 +2,7 @@ import { Pause, Play, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LEVELS, type LogFilter, type LogLevel } from "../lib/logFilter";
 import { Button } from "../ui/Button";
-import { cx } from "../ui/Glass";
+import { cx } from "../ui/Surface";
 import { categoryColor } from "./categoryColors";
 
 interface Props {
@@ -31,9 +31,9 @@ export function LogToolbar({ filter, categories, paused, onFilter, onPause, onCl
   };
 
   return (
-    <div className="flex flex-col gap-3 border-b border-glass-border p-3">
+    <div className="flex flex-col gap-3 border-b border-line p-3">
       <div className="flex items-center gap-2">
-        <label className="glass flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full px-3">
+        <label className="flex h-10 min-w-0 flex-1 items-center gap-2 border border-line px-3 focus-within:border-ink">
           <Search className="size-4 shrink-0 text-dim" />
           <input
             type="search"
@@ -48,7 +48,7 @@ export function LogToolbar({ filter, categories, paused, onFilter, onPause, onCl
           value={filter.level}
           onChange={(e) => onFilter({ ...filter, level: Number(e.target.value) as LogLevel })}
           aria-label="Nível"
-          className="glass h-10 shrink-0 rounded-full bg-transparent px-3 text-sm outline-none [&>option]:bg-[#1d2140]"
+          className="h-10 shrink-0 border border-line bg-surface px-2 font-mono text-xs uppercase tracking-[0.06em] outline-none focus:border-ink"
         >
           {LEVELS.map((l) => (
             <option key={l.value} value={l.value}>
@@ -56,7 +56,7 @@ export function LogToolbar({ filter, categories, paused, onFilter, onPause, onCl
             </option>
           ))}
         </select>
-        <Button icon aria-label={paused ? "Continuar" : "Pausar"} onClick={onPause} variant={paused ? "primary" : "glass"}>
+        <Button icon aria-label={paused ? "Continuar" : "Pausar"} onClick={onPause} variant={paused ? "primary" : "outline"}>
           {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
         </Button>
         <Button icon aria-label="Limpar" onClick={onClear}>
@@ -70,8 +70,8 @@ export function LogToolbar({ filter, categories, paused, onFilter, onPause, onCl
             onClick={() => toggleCat(cat)}
             aria-pressed={enabled(cat)}
             className={cx(
-              "flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-opacity",
-              enabled(cat) ? "border-white/15 bg-white/8" : "border-transparent opacity-45",
+              "flex h-8 shrink-0 items-center gap-1.5 border px-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.06em] transition-opacity",
+              enabled(cat) ? "border-ink bg-surface" : "border-line text-dim opacity-60",
             )}
           >
             <span className="size-2 rounded-full" style={{ background: categoryColor(cat) }} />
