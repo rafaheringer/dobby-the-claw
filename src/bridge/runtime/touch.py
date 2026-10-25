@@ -115,3 +115,26 @@ class TouchDetector:
     def _pet_end(self, at: float) -> TouchEvent:
         assert self._pet_started_at is not None
         return TouchEvent(TouchKind.PET_END, at, duration_s=at - self._pet_started_at)
+
+
+class TouchSpeechGate:
+    """Decide when a touch earns a spoken reaction (first one, then once per cooldown)."""
+
+    def __init__(self, cooldown_s: float = 300.0) -> None:
+        """Store the minimum gap between spoken reactions of the same kind."""
+        self._cooldown_s = cooldown_s
+        self._last: dict[TouchKind, float] = {}
+
+    def notice(self, event: TouchEvent, now: float) -> str | None:
+        """Return the notice text for the model when `event` should be spoken about, else None."""
+        if event.kind is TouchKind.PET_END:
+            text = f"[toque] carinho de {round(event.duration_s)} s terminou"
+        elif event.kind is TouchKind.TAP:
+            text = "[toque] levou batidinhas na cabeça"
+        else:
+            return None
+        last = self._last.get(event.kind)
+        if last is not None and now - last < self._cooldown_s:
+            return None
+        self._last[event.kind] = now
+        return text
