@@ -86,6 +86,7 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                     antenna_finger_max_angle_deg=config.antenna_finger_max_angle_deg,
                     face_recognizer=face_recognizer,
                     person_detector=person_detector,
+                    mic_gain_restore=config.touch_agc_restore_gain,
                 )
             else:
                 logging.info(

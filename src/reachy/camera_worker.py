@@ -49,6 +49,21 @@ def _open_respeaker() -> Any:
     return init_respeaker_usb()
 
 
+_MIC_GAIN_FLOOR = 0.2  # a collapsed AGC sits near 0.04; turning down a loud voice stays well above
+_MIC_GAIN_CHECK_S = 5.0
+
+
+def ensure_mic_gain(respeaker: Any, lock: threading.Lock, gain: float) -> bool:
+    """Write `gain` back when the AGC gain has collapsed (it does not recover by itself)."""
+    with lock:
+        current = float(respeaker.read("PP_AGCGAIN")[0])
+        if current >= _MIC_GAIN_FLOOR:
+            return False
+        respeaker.write("PP_AGCGAIN", [float(gain)])
+    logger.info("Mic AGC gain had collapsed to %.3f; restored to %.1f", current, gain)
+    return True
+
+
 def restore_mic_gain(
     gain: float, respeaker: Any = None, lock: Optional[threading.Lock] = None
 ) -> threading.Thread:
@@ -92,6 +107,7 @@ class CameraWorker:
         face_recognizer: Optional[FaceRecognizer] = None,
         audio_doa_enabled: bool = True,
         person_detector: Any = None,
+        mic_gain_restore: float = 0.0,
     ) -> None:
         """Initialize camera worker dependencies and tracking state."""
         self.reachy_mini = reachy_mini
@@ -174,6 +190,7 @@ class CameraWorker:
         self._doa_lock = threading.Lock()  # one USB conversation with the mic array at a time
         self._doa_speech: deque[tuple[float, float]] = deque(maxlen=80)  # (time, angle) while speech is heard
         self._doa_thread: threading.Thread | None = None
+        self._mic_gain_restore = mic_gain_restore  # AGC watchdog target; 0 disables
 
         # Person detection: follow people too far away for the face tracker and choose whom to look at.
         self._person_detector = person_detector if getattr(person_detector, "available", False) else None
@@ -293,7 +310,15 @@ class CameraWorker:
             return
         self._audio_doa = doa
         logger.info("AudioDoA sampling started")
+        next_gain_check = 0.0
         while not self._stop_event.wait(0.12):
+            respeaker = getattr(doa, "respeaker", None)
+            if self._mic_gain_restore > 0 and respeaker is not None and time.monotonic() >= next_gain_check:
+                next_gain_check = time.monotonic() + _MIC_GAIN_CHECK_S
+                try:
+                    ensure_mic_gain(respeaker, self._doa_lock, self._mic_gain_restore)
+                except Exception as exc:
+                    logger.debug("Mic AGC gain check failed: %s", exc)
             try:
                 with self._doa_lock:
                     reading = doa.get_DoA()
