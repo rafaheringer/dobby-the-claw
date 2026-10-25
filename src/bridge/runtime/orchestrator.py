@@ -48,6 +48,7 @@ from bridge.runtime.ports import (
 _conv_log = logging.getLogger("bridge.conversation")
 
 
+_TOUCH_PRESENCE_QUIET_S = 15.0
 # Touch event -> (kind, phase) for RobotActionsPort.react_touch.
 _TOUCH_REACTIONS = {
     TouchKind.PET_START: ("pet", "start"),
@@ -144,6 +145,7 @@ class RuntimeOrchestrator:
         self._touch: TouchDetector | None = None
         self._touch_gate = TouchSpeechGate(cooldown_s=config.touch_speak_cooldown_s)
         self._touch_deaf_until = 0.0
+        self._touch_quiet_until = 0.0  # presence notices are absorbed until then
         if config.touch_enabled:
             self._touch = TouchDetector(pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak)
 
@@ -376,6 +378,11 @@ class RuntimeOrchestrator:
             logging.info(
                 "[%dms] Touch: %s (%.1fs)", self._elapsed_ms(), event.kind.value, event.duration_s
             )
+            # A hand on the head fools the person detector: keep presence quiet meanwhile.
+            if event.kind is TouchKind.PET_START:
+                self._touch_quiet_until = float("inf")
+            else:
+                self._touch_quiet_until = now + _TOUCH_PRESENCE_QUIET_S
             sound_s = self.robot_actions.react_touch(kind, phase, asleep=self.sleeping)
             if sound_s > 0:
                 self._touch_deaf_until = now + sound_s + 0.3
@@ -402,6 +409,9 @@ class RuntimeOrchestrator:
         )
         notice = self._presence.pending(wall)
         if notice is None:
+            return
+        if notice.text and now < self._touch_quiet_until:
+            self._presence.commit(notice, wall)  # likely the petting hand; drop it
             return
         if notice.text:
             last_event = max(self.last_user_activity, self._last_audio_chunk_ts, self._last_tool_call_ts)

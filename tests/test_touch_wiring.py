@@ -39,6 +39,7 @@ def _orch(events, sleeping=False):
     o._touch = _Detector(events)
     o._touch_gate = TouchSpeechGate()
     o._touch_deaf_until = 0.0
+    o._touch_quiet_until = 0.0
     o.robot_actions = _Actions()
     o.realtime = None if sleeping else _Realtime()
     o.sleeping = sleeping
@@ -75,3 +76,37 @@ def test_deaf_while_playing_and_muted_during_reaction_sound():
     o._observe_touch(SimpleNamespace(), 2.5)  # hears PET_START, sound lasts 2.0 s
     o._observe_touch(SimpleNamespace(), 4.0)  # reaction sound still playing
     assert o._touch.deaf_calls == [(True, False), (True, False), (False, False), (False, True)]
+
+
+def test_petting_quiets_presence_until_after_the_end():
+    o = _orch([TouchEvent(TouchKind.PET_START, 1.0)])
+    o._observe_touch(SimpleNamespace(), 1.0)
+    assert o._touch_quiet_until == float("inf")
+    o._touch.events = [TouchEvent(TouchKind.PET_END, 9.0, 8.0)]
+    o._touch_deaf_until = 0.0
+    o._observe_touch(SimpleNamespace(), 9.0)
+    assert o._touch_quiet_until == 9.0 + 15.0
+
+
+class _Presence:
+    def __init__(self):
+        self.committed = []
+
+    def observe(self, *args, **kwargs):
+        pass
+
+    def pending(self, wall):
+        return SimpleNamespace(text="SYSTEM NOTICE (presença): chegou uma pessoa", respond=True)
+
+    def commit(self, notice, wall):
+        self.committed.append(notice)
+
+
+def test_presence_notice_absorbed_while_touch_quiet():
+    o = _orch([])
+    o._presence = _Presence()
+    o._last_presence_poll = 0.0
+    o.camera_worker = SimpleNamespace(get_presence=lambda: [], get_pets=lambda: [])
+    o._touch_quiet_until = 100.0
+    o._maybe_send_presence_notice(50.0)
+    assert o.realtime.sent == [] and len(o._presence.committed) == 1
