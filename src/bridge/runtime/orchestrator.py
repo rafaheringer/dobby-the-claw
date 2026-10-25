@@ -34,6 +34,7 @@ from bridge.runtime.bootstrap import load_prompt
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.presence_notices import PresenceNotifier
 from bridge.runtime.touch import TouchDetector, TouchKind, TouchSpeechGate
+from reachy.camera_worker import restore_mic_gain
 from bridge.runtime.speaker_id import MicRingBuffer, _to_mono, fuse_speaker
 from bridge.runtime.ports import (
     ConversationCallbacks,
@@ -49,6 +50,7 @@ _conv_log = logging.getLogger("bridge.conversation")
 
 
 _TOUCH_PRESENCE_QUIET_S = 15.0
+_TOUCH_PRESENCE_MAX_PET_S = 30.0  # like PetMove's cap: loud noise must not mute presence forever
 # Touch event -> (kind, phase) for RobotActionsPort.react_touch.
 _TOUCH_REACTIONS = {
     TouchKind.PET_START: ("pet", "start"),
@@ -147,6 +149,7 @@ class RuntimeOrchestrator:
         self._touch_deaf_until = 0.0
         self._touch_quiet_until = 0.0  # presence notices are absorbed until then
         self._touch_agc_gain = config.touch_agc_restore_gain
+        self._touch_restore_pending = False  # petting cut short by Dobby speaking
         if config.touch_enabled:
             self._touch = TouchDetector(pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak)
 
@@ -374,6 +377,9 @@ class RuntimeOrchestrator:
         deaf = self.playback_started or now < self._playback_end_ts + 0.8
         muted = now < self._touch_deaf_until  # our own reaction sound is playing
         events = self._touch.observe(self.input_sample_rate, sample, now, deaf=deaf, muted=muted)
+        if self._touch_restore_pending and not deaf and not self._touch.petting:
+            self._touch_restore_pending = False
+            self._restore_mic_gain()
         for event in events:
             kind, phase = _TOUCH_REACTIONS[event.kind]
             logging.info(
@@ -381,16 +387,14 @@ class RuntimeOrchestrator:
             )
             # A hand on the head fools the person detector: keep presence quiet meanwhile.
             if event.kind is TouchKind.PET_START:
-                self._touch_quiet_until = float("inf")
+                self._touch_quiet_until = now + _TOUCH_PRESENCE_MAX_PET_S + _TOUCH_PRESENCE_QUIET_S
             else:
                 self._touch_quiet_until = now + _TOUCH_PRESENCE_QUIET_S
             sound_s = self.robot_actions.react_touch(kind, phase, asleep=self.sleeping)
-            if (
-                event.kind is not TouchKind.PET_START
-                and self._touch_agc_gain > 0
-                and self.camera_worker is not None
-            ):
-                self.camera_worker.restore_mic_gain(self._touch_agc_gain)
+            if event.interrupted:
+                self._touch_restore_pending = True  # the hand may still be there; wait for quiet
+            elif event.kind is not TouchKind.PET_START:
+                self._restore_mic_gain()
             if sound_s > 0:
                 self._touch_deaf_until = now + sound_s + 0.3
             if self.sleeping:
@@ -400,6 +404,15 @@ class RuntimeOrchestrator:
             if text is not None and self.realtime is not None:
                 logging.info("[%dms] Touch notice: %s", self._elapsed_ms(), text)
                 self.realtime.send_text(text, respond=True)
+
+    def _restore_mic_gain(self) -> None:
+        """Undo the AGC collapse caused by petting the mic array (non-blocking)."""
+        if self._touch_agc_gain <= 0:
+            return
+        if self.camera_worker is not None:
+            self.camera_worker.restore_mic_gain(self._touch_agc_gain)
+        else:
+            restore_mic_gain(self._touch_agc_gain)
 
     def _maybe_send_presence_notice(self, now: float) -> None:
         """Tell the model who arrived, was recognized or left, only while the conversation is quiet."""
@@ -418,8 +431,7 @@ class RuntimeOrchestrator:
         if notice is None:
             return
         if notice.text and now < self._touch_quiet_until:
-            self._presence.commit(notice, wall)  # likely the petting hand; drop it
-            return
+            return  # likely the petting hand; a real arrival is still announced afterwards
         if notice.text:
             last_event = max(self.last_user_activity, self._last_audio_chunk_ts, self._last_tool_call_ts)
             busy = (

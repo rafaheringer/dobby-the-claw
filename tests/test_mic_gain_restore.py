@@ -27,5 +27,20 @@ def test_restore_mic_gain_writes_agc_gain_off_thread():
     assert rs.writes == [("PP_AGCGAIN", [2.0])]
 
 
-def test_restore_mic_gain_without_mic_array_is_a_no_op():
-    assert _worker(None).restore_mic_gain(2.0) is None
+def test_restore_mic_gain_opens_the_device_when_doa_is_not_ready(monkeypatch):
+    import reachy.camera_worker as cw
+
+    rs = _Respeaker()
+    rs.closed = False
+    rs.close = lambda: setattr(rs, "closed", True)
+    monkeypatch.setattr(cw, "_open_respeaker", lambda: rs)
+    _worker(None).restore_mic_gain(2.0).join(2)
+    assert rs.writes == [("PP_AGCGAIN", [2.0])] and rs.closed
+
+
+def test_restore_mic_gain_warns_without_any_device(monkeypatch, caplog):
+    import reachy.camera_worker as cw
+
+    monkeypatch.setattr(cw, "_open_respeaker", lambda: None)
+    cw.restore_mic_gain(2.0).join(2)
+    assert "AGC" in caplog.text and "not restored" in caplog.text

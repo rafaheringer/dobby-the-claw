@@ -35,6 +35,7 @@ def _run(name, sleeping=False, sound_s=5.3, tail_s=3.0):
     o._touch = TouchDetector()
     o._touch_gate = TouchSpeechGate()
     o._touch_deaf_until = o._touch_quiet_until = 0.0
+    o._touch_restore_pending = False
     o._touch_agc_gain = 2.0
     restores = []
     o.camera_worker = SimpleNamespace(restore_mic_gain=restores.append)

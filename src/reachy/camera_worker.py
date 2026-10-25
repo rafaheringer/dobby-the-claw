@@ -6,6 +6,7 @@ estimate a face target, derive pose offsets with `look_at_image`,
 and smoothly interpolate back to neutral when tracking is lost.
 """
 
+import contextlib
 import logging
 import threading
 import time
@@ -40,6 +41,41 @@ _ID_WINDOW = 6  # recent face looks kept per tracked person
 _ID_VOTES = 2  # agreeing looks needed to name a person
 _ID_RETRY_S = 1.5  # between looks at someone not yet named
 _ID_RECHECK_S = 12.0  # between looks at someone already named
+
+
+def _open_respeaker() -> Any:
+    from reachy_mini.media.audio_control_utils import init_respeaker_usb
+
+    return init_respeaker_usb()
+
+
+def restore_mic_gain(
+    gain: float, respeaker: Any = None, lock: Optional[threading.Lock] = None
+) -> threading.Thread:
+    """Write the mic array AGC gain on a background thread.
+
+    Petting saturates the array and the AGC drops its gain to near zero, then barely recovers in
+    silence. Without a `respeaker` handle a short-lived one is opened (and closed) for the write.
+    """
+
+    def _write() -> None:
+        handle = respeaker if respeaker is not None else _open_respeaker()
+        if handle is None:
+            logger.warning("Mic AGC gain not restored: mic array control unavailable")
+            return
+        try:
+            with lock or contextlib.nullcontext():
+                handle.write("PP_AGCGAIN", [float(gain)])
+            logger.info("Mic AGC gain restored to %.1f", gain)
+        except Exception as exc:
+            logger.warning("Mic AGC gain not restored: %s", exc)
+        finally:
+            if respeaker is None:
+                handle.close()
+
+    thread = threading.Thread(target=_write, name="mic-gain-restore", daemon=True)
+    thread.start()
+    return thread
 
 
 class CameraWorker:
@@ -268,25 +304,10 @@ class CameraWorker:
             if reading is not None and reading[1]:
                 self._doa_speech.append((time.time(), float(reading[0])))
 
-    def restore_mic_gain(self, gain: float) -> Optional[threading.Thread]:
-        """Set the mic array AGC gain in the background (petting saturates the array and the AGC
-        drops its gain to near zero, then barely recovers in silence). None without a mic array."""
-        doa = self._audio_doa
-        respeaker = getattr(doa, "respeaker", None)
-        if respeaker is None:
-            return None
-
-        def _write() -> None:
-            try:
-                with self._doa_lock:
-                    respeaker.write("PP_AGCGAIN", [float(gain)])
-                logger.info("Mic AGC gain restored to %.1f", gain)
-            except Exception as exc:
-                logger.warning("Mic AGC gain restore failed: %s", exc)
-
-        thread = threading.Thread(target=_write, name="mic-gain-restore", daemon=True)
-        thread.start()
-        return thread
+    def restore_mic_gain(self, gain: float) -> threading.Thread:
+        """Set the mic array AGC gain in the background, through the DoA handle when it is open."""
+        respeaker = getattr(self._audio_doa, "respeaker", None)
+        return restore_mic_gain(gain, respeaker=respeaker, lock=self._doa_lock)
 
     def _recent_speech_angle(self, window_s: float = 4.0) -> Optional[float]:
         """Median arrival angle of the speech heard in the last `window_s` seconds, or None."""
