@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 from numpy.typing import NDArray
 from reachy_mini.utils import create_head_pose
@@ -28,6 +30,7 @@ class PetMove(Move):
     def __init__(self, hold_s: float = 30.0) -> None:
         """`hold_s` caps the pose if `release` never comes."""
         self._release_at = hold_s
+        self._started_wall: float | None = None  # wall time of move-local t=0
 
     @property
     def duration(self) -> float:
@@ -38,6 +41,11 @@ class PetMove(Move):
         """Start easing out at move-local time `at`."""
         self._release_at = min(self._release_at, max(0.0, at))
 
+    def release_now(self) -> None:
+        """Start easing out now, measured on the move's own clock (it may have waited in queue)."""
+        started = self._started_wall
+        self.release(0.0 if started is None else time.monotonic() - started)
+
     def _amount(self, t: float) -> float:
         held = _smooth(min(t, self._release_at) / self.EASE_IN_S)
         if t <= self._release_at:
@@ -46,6 +54,8 @@ class PetMove(Move):
 
     def evaluate(self, t: float) -> _Pose:
         """Evaluate the petting pose at time `t`."""
+        if self._started_wall is None:
+            self._started_wall = time.monotonic() - t
         f = self._amount(t)
         sway = self.SWAY_RAD * np.sin(2 * np.pi * self.SWAY_HZ * max(0.0, t - self.EASE_IN_S))
         antennas = f * (self.ANTENNAS + np.array([sway, -sway]))

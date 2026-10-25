@@ -26,3 +26,22 @@ def test_tap_move_is_short_and_returns_to_neutral():
     assert m.duration == pytest.approx(1.2)
     head, ant, _ = m.evaluate(1.2)
     assert np.allclose(head, np.eye(4), atol=1e-3) and np.allclose(ant, 0, atol=1e-3)
+
+
+def test_pet_move_release_now_uses_its_own_start(monkeypatch):
+    import reachy.touch_moves as tm
+
+    clock = [100.0]
+    monkeypatch.setattr(tm.time, "monotonic", lambda: clock[0])
+    m = PetMove()
+    clock[0] = 102.0  # waited 2 s in the queue behind another move
+    m.evaluate(0.0)
+    clock[0] = 105.0
+    m.release_now()
+    assert m.duration == pytest.approx(3.0 + PetMove.EASE_OUT_S)
+
+
+def test_pet_move_released_before_start_ends_quickly():
+    m = PetMove()
+    m.release_now()
+    assert m.duration == pytest.approx(PetMove.EASE_OUT_S)

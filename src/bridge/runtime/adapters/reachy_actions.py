@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-import time
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -37,13 +37,20 @@ _QUIET_DIR = Path("~/.dobby/touch_sounds").expanduser()
 class ReachyRobotActions(RobotActionsPort):
     """Translate runtime action intents into ReachyClient calls."""
 
-    def __init__(self, reachy: ReachyClient, motion_manager: MotionManager | None = None) -> None:
-        """Store Reachy client (and motion manager for touch poses)."""
+    def __init__(
+        self,
+        reachy: ReachyClient,
+        motion_manager: MotionManager | None = None,
+        sound_dir: Path | None = None,
+    ) -> None:
+        """Store Reachy client and motion manager; prepare touch sounds (`sound_dir` overrides the
+        emotions dataset location)."""
         self._reachy = reachy
         self._motion_manager = motion_manager
         self._pet_move: PetMove | None = None
-        self._pet_move_started = 0.0
-        self._sound_dir: Path | None = None
+        # play_sound tears down and rebuilds a GStreamer pipeline: keep it off the mic loop.
+        self._sound_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="touch-sound")
+        self._touch_sounds = _prepare_touch_sounds(sound_dir)
 
     def gesture_listening(self) -> None:
         """Trigger listening gesture on Reachy."""
@@ -80,13 +87,12 @@ class ReachyRobotActions(RobotActionsPort):
         try:
             if phase == "end":
                 if kind == "pet" and self._pet_move is not None:
-                    self._pet_move.release(time.monotonic() - self._pet_move_started)
+                    self._pet_move.release_now()
                     self._pet_move = None
                 return 0.0
             if not asleep and self._motion_manager is not None:
                 if kind == "pet":
                     self._pet_move = PetMove()
-                    self._pet_move_started = time.monotonic()
                     self._motion_manager.queue_move(self._pet_move)
                 else:
                     self._motion_manager.queue_move(TapMove())
@@ -96,27 +102,45 @@ class ReachyRobotActions(RobotActionsPort):
             return 0.0
 
     def _play_touch_sound(self, kind: str, asleep: bool) -> float:
+        sound = self._touch_sounds.get((kind, asleep))
+        if sound is None:
+            return 0.0
+        path, duration = sound
         media = self._reachy.get_sdk_instance().media
-        path = self._touch_sound_path(_TOUCH_SOUNDS[(kind, asleep)], asleep)
-        with wave.open(str(path)) as wav:
-            duration = wav.getnframes() / wav.getframerate()
-        media.play_sound(str(path))
+        self._sound_worker.submit(_play_sound, media, path)
         return duration
 
-    def _touch_sound_path(self, name: str, asleep: bool) -> Path:
-        if self._sound_dir is None:
+
+def _play_sound(media: object, path: str) -> None:
+    try:
+        media.play_sound(path)
+    except Exception as exc:
+        logger.warning("Touch sound %s failed: %s", path, exc)
+
+
+def _prepare_touch_sounds(sound_dir: Path | None) -> dict[tuple[str, bool], tuple[str, float]]:
+    """Resolve each touch sound (quiet copies for asleep) with its duration; empty on failure."""
+    try:
+        if sound_dir is None:
             from huggingface_hub import snapshot_download
 
-            self._sound_dir = Path(
+            sound_dir = Path(
                 snapshot_download(_EMOTIONS_DATASET, repo_type="dataset", local_files_only=True)
             )
-        source = self._sound_dir / f"{name}.wav"
-        if not asleep:
-            return source
-        quiet = _QUIET_DIR / f"{name}.wav"
-        if not quiet.exists():
-            _write_scaled_wav(source, quiet, _ASLEEP_GAIN)
-        return quiet
+        sounds = {}
+        for (kind, asleep), name in _TOUCH_SOUNDS.items():
+            path = sound_dir / f"{name}.wav"
+            if asleep:
+                quiet = _QUIET_DIR / f"{name}.wav"
+                if not quiet.exists():
+                    _write_scaled_wav(path, quiet, _ASLEEP_GAIN)
+                path = quiet
+            with wave.open(str(path)) as wav:
+                sounds[(kind, asleep)] = (str(path), wav.getnframes() / wav.getframerate())
+        return sounds
+    except Exception as exc:
+        logger.warning("Touch sounds unavailable (%s); touch reactions will be silent", exc)
+        return {}
 
 
 def _write_scaled_wav(source: Path, target: Path, gain: float) -> None:
