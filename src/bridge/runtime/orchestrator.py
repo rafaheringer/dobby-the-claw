@@ -33,7 +33,7 @@ from homeassistant.home_assistant_client import HomeAssistantWsClient
 from bridge.runtime.bootstrap import load_prompt
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.presence_notices import PresenceNotifier
-from bridge.runtime.touch import TouchDetector, TouchKind, TouchSpeechGate
+from bridge.runtime.touch import SpeechVad, TouchDetector, TouchKind, TouchSpeechGate
 from reachy.camera_worker import restore_mic_gain
 from bridge.runtime.speaker_id import MicRingBuffer, _to_mono, fuse_speaker
 from bridge.runtime.ports import (
@@ -151,7 +151,14 @@ class RuntimeOrchestrator:
         self._touch_agc_gain = config.touch_agc_restore_gain
         self._touch_restore_pending = False  # petting cut short by Dobby speaking
         if config.touch_enabled:
-            self._touch = TouchDetector(pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak)
+            try:
+                vad = SpeechVad()  # talking close to the head reaches the petting level
+            except Exception as exc:
+                logging.warning("Touch speech filter unavailable (%s); close speech may read as touch", exc)
+                vad = None
+            self._touch = TouchDetector(
+                pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak, vad=vad
+            )
 
         self.tool_runtime = tool_runtime or build_tool_runtime(
             config,

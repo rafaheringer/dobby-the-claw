@@ -1,18 +1,21 @@
 """Detect petting and taps on Dobby's head from the mic array level.
 
 Petting right on the array saturates it (100 ms windows near -10 dBFS, clipped samples) while speech
-at a normal distance stays below about -22 dBFS; taps are short transients. Pure logic: the
+at a normal distance stays below about -22 dBFS; taps are short transients. Speech close to the head
+reaches the same level, so a voice activity detector masks it. Pure logic: the
 orchestrator feeds mic chunks and acts on the returned events.
 """
 
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
 
+from bridge.runtime.common import resample_audio_chunk
 from bridge.runtime.wakeword import _to_mono
 
 _WINDOW_S = 0.1
@@ -24,6 +27,8 @@ _TAP_BURST_WINDOWS = 5  # this many loud windows within the span, none sustained
 _PET_END_S = 2.0  # petting ends after this long without a loud window
 _TAP_HOLD_S = 1.0  # taps are emitted after this long without a hit (petting may still show up)
 _TAP_AFTER_PET_S = 3.0  # stray hits right after petting are its tail, not taps
+_SPEECH_PROB = 0.5  # VAD probability above which a window is someone talking, not a touch
+_SPEECH_MASK_S = 0.5  # windows this long after speech are masked too (syllable gaps, plosives)
 
 
 class TouchKind(str, Enum):
@@ -44,13 +49,60 @@ class TouchEvent:
     interrupted: bool = False
 
 
+class SpeechVad:
+    """Streaming Silero VAD (bundled with faster-whisper): speech probability of mic audio."""
+
+    _RATE = 16000
+    _FRAME = 512
+    _CONTEXT = 64
+
+    def __init__(self) -> None:
+        """Load the model (a few MB, CPU)."""
+        from faster_whisper.vad import get_vad_model
+
+        self._session = get_vad_model().session
+        self._h = np.zeros((1, 1, 128), dtype=np.float32)
+        self._c = np.zeros((1, 1, 128), dtype=np.float32)
+        self._context = np.zeros(self._CONTEXT, dtype=np.float32)
+        self._pending = np.zeros(0, dtype=np.float32)
+        self._last = 0.0
+
+    def __call__(self, audio: np.ndarray, sample_rate: int) -> float:
+        """Feed mono audio; highest probability over the frames it completes (else the last one)."""
+        audio = np.asarray(audio, dtype=np.float32)
+        if sample_rate != self._RATE:
+            audio = resample_audio_chunk(audio, sample_rate, self._RATE)
+        self._pending = np.concatenate([self._pending, audio])
+        best: float | None = None
+        while len(self._pending) >= self._FRAME:
+            frame, self._pending = self._pending[: self._FRAME], self._pending[self._FRAME :]
+            batch = np.concatenate([self._context, frame])[None, :]
+            out, self._h, self._c = self._session.run(
+                None, {"input": batch, "h": self._h, "c": self._c}
+            )
+            self._context = frame[-self._CONTEXT :]
+            prob = float(np.asarray(out).reshape(-1)[0])
+            best = prob if best is None else max(best, prob)
+        if best is not None:
+            self._last = best
+        return self._last
+
+
 class TouchDetector:
     """Turn mic chunks into petting/tap events using 100 ms window level and peak."""
 
-    def __init__(self, pet_dbfs: float = -18.0, tap_peak: float = 0.5) -> None:
-        """Store thresholds: window RMS (dBFS) for petting, sample peak for taps."""
+    def __init__(
+        self,
+        pet_dbfs: float = -18.0,
+        tap_peak: float = 0.5,
+        vad: Callable[[np.ndarray, int], float] | None = None,
+    ) -> None:
+        """Store thresholds: window RMS (dBFS) for petting, sample peak for taps; `vad` (speech
+        probability of a window) masks someone talking close to the head."""
         self._pet_rms = 10 ** (pet_dbfs / 20)
         self._tap_peak = tap_peak
+        self._vad = vad
+        self._speech_until = float("-inf")
         self._buffer = np.zeros(0, dtype=np.float32)
         self._reset()
 
@@ -102,16 +154,19 @@ class TouchDetector:
         for i in range(count):
             window = self._buffer[i * size : (i + 1) * size]
             end = now - (len(self._buffer) - (i + 1) * size) / sample_rate
-            events.extend(self._window(window, end))
+            events.extend(self._window(window, end, sample_rate))
         self._buffer = self._buffer[count * size :]
         return events
 
-    def _window(self, window: np.ndarray, at: float) -> list[TouchEvent]:
+    def _window(self, window: np.ndarray, at: float, sample_rate: int) -> list[TouchEvent]:
         # Petting: sustained loud windows, or sparse ones spreading over a second. Taps: one or two
         # loud windows each with silence in between, ~5/s in a burst (or a lone hit).
         events: list[TouchEvent] = []
-        loud = float(np.sqrt(np.mean(window**2))) > self._pet_rms
-        hit = loud or float(np.max(np.abs(window))) >= self._tap_peak
+        if self._vad is not None and self._vad(window, sample_rate) >= _SPEECH_PROB:
+            self._speech_until = at + _SPEECH_MASK_S
+        talking = at < self._speech_until
+        loud = not talking and float(np.sqrt(np.mean(window**2))) > self._pet_rms
+        hit = loud or (not talking and float(np.max(np.abs(window))) >= self._tap_peak)
         self._run = self._run + 1 if loud else 0
         if loud:
             self._last_loud = at

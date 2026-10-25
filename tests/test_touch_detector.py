@@ -4,16 +4,16 @@ from pathlib import Path
 
 import numpy as np
 
-from bridge.runtime.touch import TouchDetector, TouchKind
+from bridge.runtime.touch import SpeechVad, TouchDetector, TouchKind
 
 FIXTURES = Path(__file__).parent / "fixtures" / "touch"
 RATE = 16000
 
 
-def run(name, chunk=160, tail_s=3.0, deaf_from=None, stereo=False):
+def run(name, chunk=160, tail_s=3.0, deaf_from=None, stereo=False, vad=None):
     audio = np.load(FIXTURES / f"{name}.npy").astype(np.float32) / 32767
     audio = np.concatenate([audio, np.zeros(int(tail_s * RATE), dtype=np.float32)])
-    detector = TouchDetector()
+    detector = TouchDetector(vad=vad)
     events = []
     for start in range(0, len(audio), chunk):
         piece = audio[start : start + chunk]
@@ -101,3 +101,28 @@ def test_petting_at_full_gain_is_one_episode_without_taps():
         assert TouchKind.TAP not in kinds, name
         assert kinds[0] is TouchKind.PET_START, name
         assert kinds.count(TouchKind.PET_START) == kinds.count(TouchKind.PET_END) >= 1, name
+
+
+def test_close_speech_is_not_a_touch():
+    # Talking 30-50 cm from the head reaches the petting level in sparse windows.
+    assert run("fala_perto_g2", vad=SpeechVad()) == []
+
+
+def test_speech_filter_keeps_touches():
+    assert TouchKind.PET_START not in _kinds(run("batidinha_g2", vad=SpeechVad()))
+    for name in ("carinho", "carinho_g2", "carinho_leve_g2"):
+        kinds = _kinds(run(name, vad=SpeechVad()))
+        assert kinds[0] is TouchKind.PET_START and TouchKind.TAP not in kinds, name
+
+
+def test_speech_vad_scores_voice_high_and_touch_low():
+    def score(name, rate=RATE):
+        audio = np.load(FIXTURES / f"{name}.npy").astype(np.float32) / 32767
+        if rate != RATE:
+            audio = np.repeat(audio, rate // RATE)
+        vad = SpeechVad()
+        return max(vad(audio[i : i + 960], rate) for i in range(0, len(audio), 960))
+
+    assert score("fala_perto_g2") > 0.9
+    assert score("fala_perto_g2", rate=48000) > 0.9
+    assert score("batidinha_g2") < 0.5
