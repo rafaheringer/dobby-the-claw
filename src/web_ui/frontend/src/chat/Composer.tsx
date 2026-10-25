@@ -42,12 +42,12 @@ export function Composer() {
       style={{ "--composer-bottom": keyboard > 0 ? `${keyboard + 8}px` : "calc(env(safe-area-inset-bottom) + 96px)" } as React.CSSProperties}
     >
       {asleep ? (
-        <div className="glass mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-full bg-[#1a1e38]/70 py-1.5 pl-5 pr-1.5">
+        <div className="glass flex max-w-3xl items-center justify-between gap-3 rounded-full bg-[#1a1e38]/70 py-1.5 pl-5 pr-1.5">
           <span className="text-sm text-dim">Dobby está dormindo</span>
           <WakeToggle />
         </div>
       ) : (
-        <form onSubmit={submit} className="glass mx-auto flex max-w-3xl items-center gap-2 rounded-full bg-[#1a1e38]/70 p-1.5 pl-5">
+        <form onSubmit={submit} className="glass flex max-w-3xl items-center gap-2 rounded-full bg-[#1a1e38]/70 p-1.5 pl-5">
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
