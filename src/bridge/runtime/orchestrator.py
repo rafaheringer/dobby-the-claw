@@ -368,12 +368,10 @@ class RuntimeOrchestrator:
 
     def _observe_touch(self, sample: Any, now: float) -> None:
         """Feed the touch detector and react to petting/taps (sound only while asleep)."""
-        deaf = (
-            self.playback_started
-            or now < self._playback_end_ts + 0.8
-            or now < self._touch_deaf_until
-        )
-        for event in self._touch.observe(self.input_sample_rate, sample, now, deaf=deaf):
+        deaf = self.playback_started or now < self._playback_end_ts + 0.8
+        muted = now < self._touch_deaf_until  # our own reaction sound is playing
+        events = self._touch.observe(self.input_sample_rate, sample, now, deaf=deaf, muted=muted)
+        for event in events:
             kind, phase = _TOUCH_REACTIONS[event.kind]
             logging.info(
                 "[%dms] Touch: %s (%.1fs)", self._elapsed_ms(), event.kind.value, event.duration_s

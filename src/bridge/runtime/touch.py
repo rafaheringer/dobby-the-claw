@@ -32,11 +32,12 @@ class TouchKind(str, Enum):
 
 @dataclass(frozen=True)
 class TouchEvent:
-    """One detected touch; `duration_s` is set on PET_END."""
+    """One detected touch; `duration_s` is set on PET_END, `interrupted` when deafness ended it."""
 
     kind: TouchKind
     at: float
     duration_s: float = 0.0
+    interrupted: bool = False
 
 
 class TouchDetector:
@@ -62,15 +63,30 @@ class TouchDetector:
         self._tap_at: float | None = None
 
     def observe(
-        self, sample_rate: int, sample: np.ndarray, now: float, deaf: bool = False
+        self,
+        sample_rate: int,
+        sample: np.ndarray,
+        now: float,
+        deaf: bool = False,
+        muted: bool = False,
     ) -> list[TouchEvent]:
-        """Feed one mic chunk ending at `now`; return the events it completes."""
+        """Feed one mic chunk ending at `now`; return the events it completes.
+
+        `deaf` (Dobby speaking) ends any episode and drops the audio; `muted` (a reaction sound
+        playing) only drops the audio: an ongoing petting episode is assumed to continue.
+        """
         if deaf:
             events = []
             if self._pet_started_at is not None:
-                events.append(self._pet_end(now))
+                events.append(self._pet_end(now, interrupted=True))
             self._reset()
             return events
+        if muted:
+            self._buffer = np.zeros(0, dtype=np.float32)
+            self._tap_at = None
+            if self._pet_started_at is not None:
+                self._last_loud = now
+            return []
         self._buffer = np.concatenate([self._buffer, _to_mono(sample)])
         size = max(1, int(sample_rate * _WINDOW_S))
         count = len(self._buffer) // size
@@ -112,9 +128,10 @@ class TouchDetector:
                 self._tap_at = None
         return events
 
-    def _pet_end(self, at: float) -> TouchEvent:
+    def _pet_end(self, at: float, interrupted: bool = False) -> TouchEvent:
         assert self._pet_started_at is not None
-        return TouchEvent(TouchKind.PET_END, at, duration_s=at - self._pet_started_at)
+        duration = at - self._pet_started_at
+        return TouchEvent(TouchKind.PET_END, at, duration_s=duration, interrupted=interrupted)
 
 
 class TouchSpeechGate:
@@ -127,6 +144,8 @@ class TouchSpeechGate:
 
     def notice(self, event: TouchEvent, now: float) -> str | None:
         """Return the notice text for the model when `event` should be spoken about, else None."""
+        if event.interrupted:
+            return None
         if event.kind is TouchKind.PET_END:
             text = f"[toque] carinho de {round(event.duration_s)} s terminou"
         elif event.kind is TouchKind.TAP:

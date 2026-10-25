@@ -18,3 +18,8 @@ def test_kinds_have_independent_cooldowns():
 
 def test_pet_start_never_speaks():
     assert TouchSpeechGate().notice(TouchEvent(TouchKind.PET_START, 0), 0) is None
+
+
+def test_interrupted_pet_end_never_speaks():
+    event = TouchEvent(TouchKind.PET_END, 10, 6.0, interrupted=True)
+    assert TouchSpeechGate().notice(event, 10) is None

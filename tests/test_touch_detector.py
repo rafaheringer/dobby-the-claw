@@ -62,3 +62,23 @@ def test_chunking_and_stereo_do_not_change_events():
     base = [(e.kind, round(e.at, 1)) for e in run("carinho")]
     assert [(e.kind, round(e.at, 1)) for e in run("carinho", chunk=437)] == base
     assert [(e.kind, round(e.at, 1)) for e in run("carinho", stereo=True)] == base
+
+
+def test_muted_after_start_keeps_one_episode():
+    audio = np.load(FIXTURES / "carinho.npy").astype(np.float32) / 32767
+    audio = np.concatenate([audio, np.zeros(3 * RATE, dtype=np.float32)])
+    detector = TouchDetector()
+    events, muted_until = [], 0.0
+    for start in range(0, len(audio), 160):
+        now = (start + 160) / RATE
+        new = detector.observe(RATE, audio[start : start + 160], now, muted=now < muted_until)
+        if any(e.kind is TouchKind.PET_START for e in new):
+            muted_until = now + 5.6  # reaction sound playing
+        events.extend(new)
+    assert [e.kind for e in events] == [TouchKind.PET_START, TouchKind.PET_END]
+    assert events[1].duration_s > 5.0 and not events[1].interrupted
+
+
+def test_deaf_mid_episode_marks_pet_end_interrupted():
+    ev = run("carinho", deaf_from=3.0)
+    assert ev[1].interrupted

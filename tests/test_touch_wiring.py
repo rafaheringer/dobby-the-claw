@@ -11,9 +11,9 @@ class _Detector:
         self.events = events
         self.deaf_calls = []
 
-    def observe(self, sample_rate, sample, now, deaf=False):
-        self.deaf_calls.append(deaf)
-        return self.events if not deaf else []
+    def observe(self, sample_rate, sample, now, deaf=False, muted=False):
+        self.deaf_calls.append((deaf, muted))
+        return self.events if not (deaf or muted) else []
 
 
 class _Actions:
@@ -65,7 +65,7 @@ def test_asleep_reacts_without_speaking_or_activity():
     assert o.last_user_activity == 0.0
 
 
-def test_deaf_while_playing_and_during_reaction_sound():
+def test_deaf_while_playing_and_muted_during_reaction_sound():
     o = _orch([TouchEvent(TouchKind.PET_START, 1.0)])
     o.playback_started = True
     o._observe_touch(SimpleNamespace(), 1.0)
@@ -74,4 +74,4 @@ def test_deaf_while_playing_and_during_reaction_sound():
     o._observe_touch(SimpleNamespace(), 2.0)  # inside the 0.8 s tail
     o._observe_touch(SimpleNamespace(), 2.5)  # hears PET_START, sound lasts 2.0 s
     o._observe_touch(SimpleNamespace(), 4.0)  # reaction sound still playing
-    assert o._touch.deaf_calls == [True, True, False, True]
+    assert o._touch.deaf_calls == [(True, False), (True, False), (False, False), (False, True)]
