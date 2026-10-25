@@ -18,6 +18,7 @@ This document describes, in plain language, everything Dobby can do today. It is
 
 - **Follows you with its head.** It turns its head to look at whoever is talking or at the face it sees, even from across the room.
 - **Notices who is around.** It sees when someone arrives or leaves. With several people, it looks at whoever is talking, turns to newcomers and glances at the others from time to time. When someone arrives it may greet them by name, with a "bom dia", "boa tarde" or "boa noite" depending on the time, without repeating itself every few minutes. It notices cats and dogs too, and keeps an eye on the cat when nobody else is around.
+- **Likes being petted.** Pet the top of its head and it leans into your hand: antennas fold all the way back like when it sleeps, head tilts and stays still, and it makes a happy little sound. When you stop, it may ask for more in a sweet, spoiled voice. Give its head a few quick taps in a row and it jumps, shakes its head and complains (a single knock, voices nearby, the TV or footsteps do not count). While asleep it only makes a soft sleepy sound and stays asleep.
 - **Antennas controlled by your finger.** Point a finger and the antennas follow the movement.
 - **Emotions.** It expresses joy, surprise, sadness and other reactions with movements and sounds.
 - **Dances.** Ask it to dance and it picks a move (or you can request a specific one).

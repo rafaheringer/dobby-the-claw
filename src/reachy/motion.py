@@ -34,6 +34,9 @@ FullBodyPose = Tuple[NDArray[np.float64], Tuple[float, float], float]
 class Move:
     """Minimal move protocol used by the primary move queue."""
 
+    # An exclusive move owns head and antennas: tracking, speech and finger offsets fade out.
+    exclusive = False
+
     @property
     def duration(self) -> float:
         """Return move duration in seconds."""
@@ -112,6 +115,25 @@ def clone_full_body_pose(pose: FullBodyPose) -> FullBodyPose:
     return (head.copy(), (float(antennas[0]), float(antennas[1])), float(body_yaw))
 
 
+EXCLUSIVE_FADE_S = 0.4  # how fast secondary offsets fade out/in around an exclusive move
+
+
+def next_secondary_weight(weight: float, exclusive: bool, dt: float) -> float:
+    """Step the secondary-offset weight toward 0 during exclusive moves, back to 1 otherwise."""
+    step = dt / EXCLUSIVE_FADE_S
+    return max(0.0, weight - step) if exclusive else min(1.0, weight + step)
+
+
+def fade_secondary_pose(pose: FullBodyPose, weight: float) -> FullBodyPose:
+    """Scale a secondary offset pose by `weight` (0 = no offset, 1 = unchanged)."""
+    head, antennas, body_yaw = pose
+    if weight >= 1.0:
+        return pose
+    identity = create_head_pose(0, 0, 0, 0, 0, 0, degrees=True)
+    faded = linear_pose_interpolation(identity, head, weight)
+    return (faded, (antennas[0] * weight, antennas[1] * weight), body_yaw * weight)
+
+
 @dataclass
 class MovementState:
     """State container for movement loop runtime data."""
@@ -154,6 +176,8 @@ class MotionManager:
 
         self._is_listening = False
         self._breathing_active = False
+        self._secondary_weight = 1.0  # fades to 0 while an exclusive (touch) move runs
+        self._last_weight_time = time.monotonic()
         self._last_commanded_pose: FullBodyPose = clone_full_body_pose(self.state.last_primary_pose or (neutral_pose, (0.0, 0.0), 0.0))
         self._listening_antennas: Tuple[float, float] = self._last_commanded_pose[1]
         self._antenna_unfreeze_blend = 1.0
@@ -552,8 +576,18 @@ class MotionManager:
 
             primary = self._get_primary_pose(loop_start)
             secondary = self._get_secondary_pose(loop_start)
+            exclusive = bool(getattr(self.state.current_move, "exclusive", False))
+            self._secondary_weight = next_secondary_weight(
+                self._secondary_weight, exclusive, loop_start - self._last_weight_time
+            )
+            self._last_weight_time = loop_start
+            secondary = fade_secondary_pose(secondary, self._secondary_weight)
             head, antennas, body_yaw = combine_full_body(primary, secondary)
-            if self.state.antenna_finger_active:
+            if exclusive:
+                antennas_cmd = (float(antennas[0]), float(antennas[1]))
+                self._listening_antennas = antennas_cmd
+                self._antenna_unfreeze_blend = 1.0
+            elif self.state.antenna_finger_active:
                 antennas_cmd = (
                     float(self.state.antenna_finger_offsets[0]),
                     float(self.state.antenna_finger_offsets[1]),

@@ -1,0 +1,54 @@
+"""Pose moves played when Dobby is petted or tapped."""
+
+import numpy as np
+import pytest
+
+from reachy.touch_moves import PetMove, TapMove
+
+
+def test_pet_move_reaches_pose_and_releases():
+    m = PetMove()
+    _, ant, _ = m.evaluate(1.0)  # antennas folded like the sleep pose
+    assert ant[0] == pytest.approx(-3.05, abs=0.16) and ant[1] == pytest.approx(3.05, abs=0.16)
+    m.release(at=5.0)
+    assert m.duration == pytest.approx(5.0 + PetMove.EASE_OUT_S)
+    _, ant_end, _ = m.evaluate(5.0 + PetMove.EASE_OUT_S)
+    assert abs(ant_end[0]) < 0.05
+
+
+def test_pet_move_holds_until_released():
+    m = PetMove(hold_s=30.0)
+    assert m.duration == pytest.approx(30.0 + PetMove.EASE_OUT_S)
+
+
+def test_tap_move_is_short_and_returns_to_neutral():
+    m = TapMove()
+    assert m.duration == pytest.approx(1.2)
+    head, ant, _ = m.evaluate(1.2)
+    assert np.allclose(head, np.eye(4), atol=1e-3) and np.allclose(ant, 0, atol=1e-3)
+
+
+def test_pet_move_release_now_uses_its_own_start(monkeypatch):
+    import reachy.touch_moves as tm
+
+    clock = [100.0]
+    monkeypatch.setattr(tm.time, "monotonic", lambda: clock[0])
+    m = PetMove()
+    clock[0] = 102.0  # waited 2 s in the queue behind another move
+    m.evaluate(0.0)
+    clock[0] = 105.0
+    m.release_now()
+    assert m.duration == pytest.approx(3.0 + PetMove.EASE_OUT_S)
+
+
+def test_pet_move_released_before_start_ends_quickly():
+    m = PetMove()
+    m.release_now()
+    assert m.duration == pytest.approx(PetMove.EASE_OUT_S)
+
+
+def test_pet_move_antennas_stay_within_joint_limits():
+    m = PetMove()
+    for t in np.arange(0, 20, 0.05):
+        _, ant, _ = m.evaluate(float(t))
+        assert np.all(np.abs(ant) <= 3.06)

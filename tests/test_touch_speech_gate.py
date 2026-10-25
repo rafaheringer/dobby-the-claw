@@ -1,0 +1,26 @@
+"""TouchSpeechGate: when a touch earns a spoken reaction, and its notice text."""
+
+from bridge.runtime.touch import TouchEvent, TouchKind, TouchSpeechGate
+
+
+def test_first_pet_end_speaks_then_cooldown():
+    g = TouchSpeechGate(cooldown_s=300)
+    assert g.notice(TouchEvent(TouchKind.PET_END, 10, 6.2), 10) == "[toque] carinho de 6 s terminou (1ª vez)"
+    assert g.notice(TouchEvent(TouchKind.PET_END, 100, 3.0), 100) is None
+    # Unspoken touches still count: the model gets a hook to vary what it says.
+    assert g.notice(TouchEvent(TouchKind.PET_END, 311, 3.0), 311) == "[toque] carinho de 3 s terminou (3ª vez)"
+
+
+def test_kinds_have_independent_cooldowns():
+    g = TouchSpeechGate()
+    g.notice(TouchEvent(TouchKind.PET_END, 0, 4), 0)
+    assert g.notice(TouchEvent(TouchKind.TAP, 1), 1) == "[toque] levou batidinhas na cabeça (1ª vez)"
+
+
+def test_pet_start_never_speaks():
+    assert TouchSpeechGate().notice(TouchEvent(TouchKind.PET_START, 0), 0) is None
+
+
+def test_interrupted_pet_end_never_speaks():
+    event = TouchEvent(TouchKind.PET_END, 10, 6.0, interrupted=True)
+    assert TouchSpeechGate().notice(event, 10) is None

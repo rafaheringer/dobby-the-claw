@@ -107,6 +107,11 @@ class BridgeConfig:
     presence_enabled: bool = True
     person_detector_model: str = ""
     presence_greet_cooldown_s: float = 10800.0
+    touch_enabled: bool = True
+    touch_pet_dbfs: float = -18.0
+    touch_tap_dbfs: float = -15.0
+    touch_speak_cooldown_s: float = 300.0
+    mic_fixed_gain: float = 2.0
 
     @staticmethod
     def from_env() -> "BridgeConfig":
@@ -199,4 +204,9 @@ class BridgeConfig:
             presence_enabled=_env_flag("PRESENCE_ENABLED", True),
             person_detector_model=os.getenv("PERSON_DETECTOR_MODEL", "").strip(),
             presence_greet_cooldown_s=float(os.getenv("PRESENCE_GREET_COOLDOWN_S", "10800")),
+            touch_enabled=_env_flag("TOUCH_ENABLED", True),
+            touch_pet_dbfs=float(os.getenv("TOUCH_PET_DBFS", "-18")),
+            touch_tap_dbfs=float(os.getenv("TOUCH_TAP_DBFS", "-15")),
+            touch_speak_cooldown_s=float(os.getenv("TOUCH_SPEAK_COOLDOWN_S", "300")),
+            mic_fixed_gain=float(os.getenv("MIC_FIXED_GAIN", "2.0")),
         )
