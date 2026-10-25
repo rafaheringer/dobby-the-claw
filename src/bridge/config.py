@@ -59,8 +59,6 @@ class BridgeConfig:
     reachy_output_volume: int
     stt_language: str
     reachy_bridge_url: str
-    vision_debug_window: bool
-    vision_debug_log_interval_s: float
     vision_tracking_max_width: int
     vision_tracking_fps: float
     antenna_finger_tracking_enabled: bool
@@ -70,12 +68,7 @@ class BridgeConfig:
     idle_sleep_timeout_s: float
     offline_wakeword_enabled: bool
     offline_wakeword_aliases: tuple[str, ...]
-    offline_wakeword_threshold: float
-    offline_wakeword_fallback_on_speech: bool
-    offline_wakeword_auto_calibration_enabled: bool
-    offline_wakeword_calibration_seconds: float
-    offline_wakeword_calibration_multiplier: float
-    offline_wakeword_fallback_speech_rms_threshold: float
+    offline_wakeword_model: str
     openclaw_enabled: bool
     openclaw_ws_url: str
     openclaw_bearer_token: str
@@ -86,7 +79,6 @@ class BridgeConfig:
     home_assistant_token: str
     home_assistant_timeout_s: float
     home_assistant_sensitive_domains: tuple[str, ...]
-    wakeword_model_path: str
     pi_ssh_host: str
     pi_ssh_user: str
     speaker_id_enabled: bool
@@ -104,6 +96,13 @@ class BridgeConfig:
     gemini_voice_style: str = ""
     gemini_proactive_audio: bool = True
     voice_id_enabled: bool = True
+    web_ui_enabled: bool = True
+    web_ui_host: str = "127.0.0.1"
+    web_ui_port: int = 18900
+    web_ui_access_team_domain: str = ""
+    web_ui_access_audience: str = ""
+    web_ui_allowed_emails: tuple[str, ...] = ()
+    web_ui_frame_ancestors: tuple[str, ...] = ()
     voice_id_model_path: str = ""
     presence_enabled: bool = True
     person_detector_model: str = ""
@@ -139,8 +138,6 @@ class BridgeConfig:
             reachy_output_volume=int(os.getenv("REACHY_OUTPUT_VOLUME", "-1")),
             stt_language=os.getenv("STT_LANGUAGE", "pt"),
             reachy_bridge_url=os.getenv("REACHY_BRIDGE_URL", "http://reachy-bridge:8001"),
-            vision_debug_window=_env_flag("VISION_DEBUG_WINDOW", False),
-            vision_debug_log_interval_s=float(os.getenv("VISION_DEBUG_LOG_INTERVAL_S", "1.0")),
             vision_tracking_max_width=int(os.getenv("VISION_TRACKING_MAX_WIDTH", "640")),
             vision_tracking_fps=float(os.getenv("VISION_TRACKING_FPS", "15.0")),
             antenna_finger_tracking_enabled=_env_flag("ANTENNA_FINGER_TRACKING_ENABLED", True),
@@ -150,22 +147,7 @@ class BridgeConfig:
             idle_sleep_timeout_s=float(os.getenv("IDLE_SLEEP_TIMEOUT_S", "300")),
             offline_wakeword_enabled=_env_flag("OFFLINE_WAKEWORD_ENABLED", True),
             offline_wakeword_aliases=aliases,
-            offline_wakeword_threshold=float(os.getenv("OFFLINE_WAKEWORD_THRESHOLD", "0.5")),
-            offline_wakeword_fallback_on_speech=_env_flag(
-                "OFFLINE_WAKEWORD_FALLBACK_ON_SPEECH", True
-            ),
-            offline_wakeword_auto_calibration_enabled=_env_flag(
-                "OFFLINE_WAKEWORD_AUTO_CALIBRATION_ENABLED", True
-            ),
-            offline_wakeword_calibration_seconds=float(
-                os.getenv("OFFLINE_WAKEWORD_CALIBRATION_SECONDS", "6.0")
-            ),
-            offline_wakeword_calibration_multiplier=float(
-                os.getenv("OFFLINE_WAKEWORD_CALIBRATION_MULTIPLIER", "2.8")
-            ),
-            offline_wakeword_fallback_speech_rms_threshold=float(
-                os.getenv("OFFLINE_WAKEWORD_FALLBACK_SPEECH_RMS_THRESHOLD", "0.03")
-            ),
+            offline_wakeword_model=os.getenv("OFFLINE_WAKEWORD_MODEL", "base").strip(),
             openclaw_enabled=_env_flag("OPENCLAW_ENABLED", True),
             openclaw_ws_url=os.getenv("OPENCLAW_WS_URL", "ws://127.0.0.1:18789").strip(),
             openclaw_bearer_token=os.getenv("OPENCLAW_BEARER_TOKEN", "").strip(),
@@ -181,7 +163,6 @@ class BridgeConfig:
                     "alarm_control_panel,lock,cover,security_system,button"
                 ).split(",") if domain.strip()
             ),
-            wakeword_model_path=os.getenv("WAKEWORD_MODEL_PATH", "").strip(),
             pi_ssh_host=os.getenv("PI_SSH_HOST", "raspberrypi.local").strip(),
             pi_ssh_user=os.getenv("PI_SSH_USER", "dobby").strip(),
             speaker_id_enabled=_env_flag("SPEAKER_ID_ENABLED", True),
@@ -203,6 +184,17 @@ class BridgeConfig:
             gemini_voice_style=os.getenv("GEMINI_VOICE_STYLE", "").strip(),
             gemini_proactive_audio=_env_flag("GEMINI_PROACTIVE_AUDIO", True),
             voice_id_enabled=_env_flag("VOICE_ID_ENABLED", True),
+            web_ui_enabled=_env_flag("WEB_UI_ENABLED", True),
+            web_ui_host=os.getenv("WEB_UI_HOST", "127.0.0.1").strip(),
+            web_ui_port=int(os.getenv("WEB_UI_PORT", "18900")),
+            web_ui_access_team_domain=os.getenv("WEB_UI_ACCESS_TEAM_DOMAIN", "").strip(),
+            web_ui_access_audience=os.getenv("WEB_UI_ACCESS_AUDIENCE", "").strip(),
+            web_ui_allowed_emails=tuple(
+                email.strip().lower() for email in os.getenv("WEB_UI_ALLOWED_EMAILS", "").split(",") if email.strip()
+            ),
+            web_ui_frame_ancestors=tuple(
+                url.strip() for url in os.getenv("WEB_UI_FRAME_ANCESTORS", "").split(",") if url.strip()
+            ),
             voice_id_model_path=os.getenv("VOICE_ID_MODEL_PATH", "").strip(),
             presence_enabled=_env_flag("PRESENCE_ENABLED", True),
             person_detector_model=os.getenv("PERSON_DETECTOR_MODEL", "").strip(),

@@ -501,17 +501,12 @@ forces a `protobuf` downgrade that would otherwise break the daemon, which share
 
 # Core stack — wheels exist for py3.12/aarch64 (including mediapipe and reachy_mini_rust_kinematics)
 ~/dobby-the-claw/.venv/bin/pip install reachy-mini reachy_mini_dances_library reachy_mini_toolbox \
-    openai 'mediapipe==0.10.14' websockets textual onnxruntime opencv-contrib-python \
-    croniter requests scikit-learn
-
-# openWakeWord 0.6.x has the API the bridge expects, but its tflite-runtime dep has no wheel for
-# py3.12/aarch64. The ONNX path doesn't use tflite, so install without deps:
-~/dobby-the-claw/.venv/bin/pip install --no-deps 'openwakeword>=0.6.0,<0.7'
-~/dobby-the-claw/.venv/bin/python3 -c 'import openwakeword; openwakeword.utils.download_models()'
+    openai 'mediapipe==0.10.14' websockets onnxruntime opencv-contrib-python \
+    croniter requests faster-whisper
 ```
 
 Notes:
-- `scikit-learn` is required because `openwakeword`'s package `__init__` imports it even on the ONNX path.
+- The wake word is heard by faster-whisper (`base`); on the Pi expect ~3–5 s per speech burst.
 - `insightface` is only needed for speaker id (`SPEAKER_ID_ENABLED=1`); skip it otherwise.
 
 ### Vision tracking vs CPU
@@ -564,7 +559,7 @@ Environment=PYTHONPATH=/home/dobby/dobby-the-claw/src
 Environment=PATH=/opt/gstreamer/bin:/home/dobby/dobby-the-claw/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=GST_PLUGIN_PATH=/opt/gst-plugins-rs/lib/aarch64-linux-gnu:/opt/gstreamer/lib/aarch64-linux-gnu/gstreamer-1.0
 Environment=LD_LIBRARY_PATH=/opt/gstreamer/lib/aarch64-linux-gnu
-ExecStart=/home/dobby/dobby-the-claw/.venv/bin/python3 -m bridge.main --mode realtime
+ExecStart=/home/dobby/dobby-the-claw/.venv/bin/python3 -m bridge.main
 Restart=on-failure
 RestartSec=10
 
@@ -579,8 +574,7 @@ journalctl -u dobby-bridge -f
 ```
 
 Notes:
-- `WorkingDirectory` is the project root (not `src/`) so the relative `WAKEWORD_MODEL_PATH`
-  (`models/wakeword/dobby.onnx`) resolves.
+- `WorkingDirectory` is the project root (not `src/`) so the relative model paths resolve.
 - The `PATH`/`GST_PLUGIN_PATH`/`LD_LIBRARY_PATH` entries mirror the daemon's so the SDK can load
   the custom Reachy GStreamer `webrtcsrc` element (otherwise SDK init fails with
   "Failed to create webrtcsrc element").

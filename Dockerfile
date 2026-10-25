@@ -75,8 +75,8 @@ if old not in content:
 path.write_text(content.replace(old, new))
 PY
 
-# Pre-download openWakeWord built-in models (melspectrogram, embedding, etc.)
-RUN python3 -c "import openwakeword; openwakeword.utils.download_models()"
+# Pre-download the Whisper model used to hear the wake word
+RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
 COPY src /app/src
 COPY scripts/bridge-entrypoint.sh /app/bridge-entrypoint.sh
@@ -85,8 +85,6 @@ RUN chmod +x /app/bridge-entrypoint.sh
 
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
-# Disable GUI debug window — no display in container
-ENV VISION_DEBUG_WINDOW=0
 ENV REACHY_DIRECT_ALSA_AUDIO=1
 
 ENTRYPOINT ["/app/bridge-entrypoint.sh"]

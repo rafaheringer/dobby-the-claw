@@ -12,7 +12,7 @@ User → voice → OpenAI Realtime API → Bridge → Reachy Mini (motion, gestu
 
 - **Realtime voice conversation** via OpenAI Realtime API — low latency, streaming audio, interruption support
 - **Physical embodiment** — Reachy Mini gestures, head tracking, antenna expressions, camera vision
-- **Wake word detection** — robot sleeps when idle and wakes on "Dobby" (offline, via openWakeWord)
+- **Wake word detection** — robot sleeps when idle and wakes on "Dobby" (offline: speech bursts are transcribed with faster-whisper)
 - **Speaker identification** — recognizes faces via InsightFace; Dobby addresses each person by name and can enroll new profiles mid-conversation
 - **Per-speaker persistent memory** — extracts lasting facts from each session (via mem0 + OpenAI) and injects them at next session start
 - **Proactive reminders** — schedules one-time or recurring reminders natively, with persistence across bridge restarts
@@ -61,46 +61,24 @@ For optional integrations:
 | `OPENCLAW_BEARER_TOKEN` | Token from OpenClaw setup |
 | `HOME_ASSISTANT_URL` | Home Assistant base URL (ex.: `http://127.0.0.1:8123`) |
 | `HOME_ASSISTANT_TOKEN` | Long-lived token from HA profile |
-| `WAKEWORD_MODEL_PATH` | Path to custom wake word `.onnx` model (see below) |
 
 Full reference in [`.env.example`](.env.example).
 
-### 3. Train the wake word model (optional but recommended)
+### 3. Wake word
 
-By default, Dobby wakes on any speech (RMS energy fallback). For precise "Dobby" detection, train a custom [openWakeWord](https://github.com/dscripka/openWakeWord) model.
-
-The easiest path is the **official Colab notebook**, which handles all dependencies and data generation:
-
-1. Open the [openWakeWord training notebook](https://colab.research.google.com/drive/1q1oe2zOyZp7UsB3jJiQ1IFn8z5YfjwEb?usp=sharing) in Google Colab
-2. Set `target_phrase = "dobby"`
-3. Run all cells (~15–30 min on Colab GPU)
-4. Download the generated `.onnx` file
-5. Place it at `models/wakeword/dobby.onnx`
-6. Set in `.env`:
-
-```env
-WAKEWORD_MODEL_PATH=../models/wakeword/dobby.onnx
-```
-
-7. Download the openWakeWord feature extraction models (required once, ~5 MB):
-
-```bash
-python -c "import openwakeword.utils; openwakeword.utils.download_models([])"
-```
-
-For a fully local training setup, see the [openWakeWord training docs](https://github.com/dscripka/openWakeWord/blob/main/docs/training.md).
+Nothing to train. While Dobby sleeps, every burst of speech is transcribed locally with
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper) and the robot wakes when the text says
+"Dobby" (or another name in `OFFLINE_WAKEWORD_ALIASES`). The model (`base`, ~150 MB) downloads once
+into the Hugging Face cache. The web UI's *Configurações → Acordar* page has a test that shows what
+it heard.
 
 ### 4. Run
 
 ```bash
-PYTHONPATH=src python -m bridge.main --mode realtime
+PYTHONPATH=src python -m bridge.main
 ```
 
-Text-only mode (no microphone needed, Reachy still moves and speaks):
-
-```bash
-PYTHONPATH=src python -m bridge.main --mode chat --no-headtracking
-```
+The web UI (status, chat, camera with detections, filtered logs and controls; installable as a phone app) is served at <http://localhost:18900>. For access from the phone, see [`docs/web-ui.md`](docs/web-ui.md).
 
 ## Raspberry Pi Deployment
 
@@ -144,8 +122,8 @@ Key environment variables (full list in `.env.example`):
 | `REALTIME_MODEL` | `gpt-realtime` | OpenAI Realtime model |
 | `STT_LANGUAGE` | `pt` | Speech recognition language |
 | `IDLE_SLEEP_TIMEOUT_S` | `300` | Seconds of silence before sleep |
-| `OFFLINE_WAKEWORD_ENABLED` | `1` | Enable wake word / RMS fallback |
-| `WAKEWORD_MODEL_PATH` | _(empty)_ | Custom openWakeWord `.onnx` model path |
+| `OFFLINE_WAKEWORD_ENABLED` | `1` | Sleep when idle and wake on the robot's name |
+| `OFFLINE_WAKEWORD_MODEL` | `base` | Whisper model that hears the wake word (`base` or `small`) |
 | `SPEAKER_ID_ENABLED` | `1` | Enable face-based speaker identification (requires insightface) |
 | `SPEAKER_ID_PROFILES_DIR` | `~/.dobby/face_profiles` | Directory for enrolled face and voice profiles |
 | `VOICE_ID_ENABLED` | `1` | Also identify speakers by voice (requires sherpa-onnx; voice profiles are learned from face matches) |
@@ -169,6 +147,6 @@ ruff check .
 ruff format .
 ```
 
-No automated test suite — validation is done by running the bridge in `chat` mode.
+No automated test suite — validation is done by running the bridge and using the web UI.
 
-**VS Code:** launch configurations for both `realtime` and `chat` modes are in `.vscode/launch.json`.
+**VS Code:** the launch configuration are in `.vscode/launch.json`.

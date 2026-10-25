@@ -38,10 +38,10 @@ from bridge.runtime.ports import ConversationSessionPort, MediaIOPort
 from bridge.runtime.wakeword import OfflineWakewordDetector
 
 
-def require_sdk_instance(mode_name: str, reachy_sdk_instance: Any) -> None:
+def require_sdk_instance(reachy_sdk_instance: Any) -> None:
     """Validate sdk instance for modes that need Reachy media APIs."""
     if reachy_sdk_instance is None:
-        raise RuntimeError(f"{mode_name} mode requires REACHY_BRIDGE_URL=sdk")
+        raise RuntimeError("Realtime mode requires REACHY_BRIDGE_URL=sdk")
 
 
 def resolve_gemini_api_key() -> str:
@@ -141,14 +141,8 @@ def build_wakeword_detector(config: BridgeConfig) -> OfflineWakewordDetector:
     """Build offline wakeword detector using bridge config values."""
     return OfflineWakewordDetector(
         aliases=config.offline_wakeword_aliases,
-        threshold=config.offline_wakeword_threshold,
         enabled=config.offline_wakeword_enabled,
-        fallback_on_speech=config.offline_wakeword_fallback_on_speech,
-        speech_rms_threshold=config.offline_wakeword_fallback_speech_rms_threshold,
-        auto_calibration_enabled=config.offline_wakeword_auto_calibration_enabled,
-        calibration_seconds=config.offline_wakeword_calibration_seconds,
-        calibration_multiplier=config.offline_wakeword_calibration_multiplier,
-        model_path=config.wakeword_model_path,
+        model_size=config.offline_wakeword_model,
     )
 
 
@@ -240,8 +234,6 @@ def maybe_log_health(
     audio_chunks_total: int,
     responses_streamed: int,
     camera_worker: Optional[CameraWorker],
-    text_queue: Optional[Queue[str]] = None,
-    text_turns: Optional[int] = None,
 ) -> float:
     """Emit periodic health diagnostics and return updated timestamp."""
     if (now - last_health_log) <= 5.0:
@@ -254,32 +246,17 @@ def maybe_log_health(
         except Exception:
             vision_info = None
 
-    if text_queue is None:
-        logging.debug(
-            "[%dms] Health ready=%s playback=%s audio_q=%s chunks=%s streamed=%s face=%s eye=%s",
-            elapsed_ms(),
-            realtime.wait_until_ready(timeout_s=0.0),
-            playback_started,
-            audio_queue.qsize(),
-            audio_chunks_total,
-            responses_streamed,
-            (vision_info or {}).get("face_detected_recently"),
-            (vision_info or {}).get("eye_center"),
-        )
-    else:
-        logging.debug(
-            "[%dms] Health ready=%s playback=%s audio_q=%s text_q=%s chunks=%s streamed=%s turns=%s face=%s eye=%s",
-            elapsed_ms(),
-            realtime.wait_until_ready(timeout_s=0.0),
-            playback_started,
-            audio_queue.qsize(),
-            text_queue.qsize(),
-            audio_chunks_total,
-            responses_streamed,
-            text_turns,
-            (vision_info or {}).get("face_detected_recently"),
-            (vision_info or {}).get("eye_center"),
-        )
+    logging.debug(
+        "[%dms] Health ready=%s playback=%s audio_q=%s chunks=%s streamed=%s face=%s eye=%s",
+        elapsed_ms(),
+        realtime.wait_until_ready(timeout_s=0.0),
+        playback_started,
+        audio_queue.qsize(),
+        audio_chunks_total,
+        responses_streamed,
+        (vision_info or {}).get("face_detected_recently"),
+        (vision_info or {}).get("eye_center"),
+    )
 
     return now
 

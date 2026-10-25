@@ -53,12 +53,6 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
     motion_manager = None
     is_sdk_runtime = config.reachy_bridge_url.strip().lower().startswith("sdk")
 
-    if config.vision_debug_window and not is_sdk_runtime:
-        logging.warning(
-            "Vision debug window requested, but REACHY_BRIDGE_URL=%s is not an SDK runtime",
-            config.reachy_bridge_url,
-        )
-
     face_recognizer: FaceRecognizer | None = None
     if config.speaker_id_enabled:
         profiles_dir = os.path.expanduser(config.speaker_id_profiles_dir)
@@ -71,8 +65,7 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
             face_recognizer = None
 
     needs_video = (
-        config.vision_debug_window
-        or config.head_tracking_enabled
+        config.head_tracking_enabled
         or config.camera_tool_enabled
         or config.speaker_id_enabled
         or config.antenna_finger_tracking_enabled
@@ -87,8 +80,6 @@ def initialize_reachy_runtime(config: BridgeConfig) -> ReachyRuntime:
                 camera_worker = CameraWorker(
                     reachy_sdk_instance,
                     head_tracker=head_tracker,
-                    debug_visual_window=config.vision_debug_window,
-                    debug_log_interval_s=config.vision_debug_log_interval_s,
                     tracking_max_width=config.vision_tracking_max_width,
                     tracking_fps=config.vision_tracking_fps,
                     antenna_finger_tracking_enabled=config.antenna_finger_tracking_enabled,

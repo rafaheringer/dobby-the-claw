@@ -7,6 +7,7 @@ import os
 import platform
 import shutil
 import subprocess
+import time
 from typing import Any
 
 import numpy as np
@@ -160,14 +161,18 @@ class ReachySdkMediaIO(MediaIOPort):
 
     def get_audio_sample(self) -> NDArray[np.float32] | None:
         """Fetch one audio sample chunk from Reachy microphone stream."""
-        # SDK chunks are ~10 ms; draining all pending ones keeps up with the mic instead of
-        # lagging and dropping audio when the main loop runs slower than real time.
+        # SDK chunks are ~10 ms; draining the pending ones keeps up with the mic when the main loop
+        # runs slower than real time. Each pull waits up to 20 ms for the next chunk, so an unbounded
+        # drain keeps reading live audio and blocks the loop for seconds: stop after a short budget.
         chunks = []
-        for _ in range(200):
+        deadline = time.monotonic() + 0.03
+        while len(chunks) < 200:
             chunk = self._media.get_audio_sample()
             if chunk is None:
                 break
             chunks.append(chunk)
+            if time.monotonic() >= deadline:
+                break
         if not chunks:
             return None
         return chunks[0] if len(chunks) == 1 else np.concatenate(chunks, axis=0)

@@ -1,4 +1,4 @@
-"""Realtime voice mode runtime loop."""
+"""Realtime voice runtime composition."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from bridge.runtime.ha_client_factory import build_ha_client
 from bridge.runtime.orchestrator import RuntimeOrchestrator
 
 
-def run_realtime_loop(
+def build_orchestrator(
     state_machine: StateMachine,
     reachy: ReachyClient,
     motion_manager: Optional[MotionManager],
@@ -23,10 +23,10 @@ def run_realtime_loop(
     reachy_sdk_instance: Any,
     identity_prompt: str,
     idle_sleep_timeout_s: float,
-) -> None:
-    """Run low-latency audio interaction mode with the OpenAI Realtime API."""
-    orchestrator = RuntimeOrchestrator(
-        mode_name="Realtime",
+    accept_text: bool = False,
+) -> RuntimeOrchestrator:
+    """Build the voice orchestrator; `accept_text` also takes typed turns (debug UI)."""
+    return RuntimeOrchestrator(
         state_machine=state_machine,
         reachy=reachy,
         motion_manager=motion_manager,
@@ -35,9 +35,7 @@ def run_realtime_loop(
         reachy_sdk_instance=reachy_sdk_instance,
         identity_prompt=identity_prompt,
         idle_sleep_timeout_s=idle_sleep_timeout_s,
-        interactive_text=False,
-        active_mode_uses_mic_recording=True,
+        accept_text=accept_text,
         wake_on_startup=False,
         ha_client=build_ha_client(config),
     )
-    orchestrator.run()

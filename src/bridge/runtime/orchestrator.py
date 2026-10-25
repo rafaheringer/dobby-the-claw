@@ -1,4 +1,4 @@
-"""Shared runtime orchestrator for chat and realtime modes."""
+"""Shared runtime orchestrator for the realtime voice runtime."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import threading
 import time
 from queue import Empty, Queue
 from typing import Any, Optional
+
+import numpy as np
 
 from bridge.config import BridgeConfig
 from reachy.camera_worker import CameraWorker
@@ -29,9 +31,9 @@ from bridge.runtime.audio_support import (
 )
 from homeassistant.home_assistant_client import HomeAssistantWsClient
 from bridge.runtime.bootstrap import load_prompt
-from bridge.runtime.common import apply_event
+from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.presence_notices import PresenceNotifier
-from bridge.runtime.speaker_id import MicRingBuffer, fuse_speaker
+from bridge.runtime.speaker_id import MicRingBuffer, _to_mono, fuse_speaker
 from bridge.runtime.ports import (
     ConversationCallbacks,
     ConversationSessionFactoryPort,
@@ -51,7 +53,6 @@ class RuntimeOrchestrator:
     def __init__(
         self,
         *,
-        mode_name: str,
         state_machine: StateMachine,
         reachy: ReachyClient,
         motion_manager: Optional[MotionManager],
@@ -60,32 +61,29 @@ class RuntimeOrchestrator:
         reachy_sdk_instance: Any,
         identity_prompt: str,
         idle_sleep_timeout_s: float,
-        interactive_text: bool,
-        active_mode_uses_mic_recording: bool,
         wake_on_startup: bool = True,
         conversation_factory: ConversationSessionFactoryPort | None = None,
         robot_actions: RobotActionsPort | None = None,
         tool_runtime: ToolRuntimePort | None = None,
         media_io: MediaIOPort | None = None,
         ha_client: HomeAssistantWsClient | None = None,
-        skip_stdin: bool = False,
+        accept_text: bool = False,
     ) -> None:
         """Initialize shared runtime dependencies and orchestration state."""
-        self.mode_name = mode_name
         self.state_machine = state_machine
         self.motion_manager = motion_manager
         self.camera_worker = camera_worker
         self.config = config
         self.identity_prompt = identity_prompt
         self.idle_sleep_timeout_s = idle_sleep_timeout_s
-        self.interactive_text = interactive_text
-        self.active_mode_uses_mic_recording = active_mode_uses_mic_recording
+        self.transitioning = ""  # "sleep" / "wake" while that change is under way
+        self.accept_text = accept_text  # debug UI feeds typed turns through text_queue
         self.wake_on_startup = wake_on_startup
         self.conversation_factory = conversation_factory or build_conversation_factory(config)
         self.robot_actions = robot_actions or ReachyRobotActions(reachy)
 
         if media_io is None:
-            require_sdk_instance(mode_name, reachy_sdk_instance)
+            require_sdk_instance(reachy_sdk_instance)
             self.media_io = build_reachy_media_io(reachy_sdk_instance)
         else:
             self.media_io = media_io
@@ -111,7 +109,8 @@ class RuntimeOrchestrator:
             )
 
         self._voice = None
-        self._mic_buffer: MicRingBuffer | None = None
+        self._mic_tap: Optional[list] = None  # while a wakeword clip is recorded, every mic chunk is also kept here
+        self._mic_buffer = MicRingBuffer()  # voice ID reads utterances from it; wakeword calibration records clips
         self._speaker_id_lock = threading.Lock()
         self._last_turn_voice_emb = None
         self._utterance_done = threading.Event()  # set when the user transcript for the turn arrives
@@ -125,7 +124,6 @@ class RuntimeOrchestrator:
             )
             if voice.available:
                 self._voice = voice
-                self._mic_buffer = MicRingBuffer()
 
         self._notification_queue: "Queue[str]" = Queue()
 
@@ -147,14 +145,12 @@ class RuntimeOrchestrator:
 
         self.audio_queue: "Queue[tuple[str, Any]]" = Queue()
         self.text_queue: "Queue[str]" = Queue()
-        self.input_stop = threading.Event()
 
         self.playback_started = False
         self.loop_start = time.monotonic()
         self.last_health_log = self.loop_start
         self.audio_chunks_total = 0
         self.responses_streamed = 0
-        self.text_turns = 0
         self.recording_started = False
         self.sleeping = False
         self.sleep_after_response = threading.Event()
@@ -174,7 +170,6 @@ class RuntimeOrchestrator:
         self.input_sample_rate = self.media_io.get_input_audio_samplerate()
 
         self._ha_client = ha_client
-        self._skip_stdin = skip_stdin
         self._notification_server: NotificationServer | None = None
         self.tool_specs = self.tool_runtime.openai_specs()
         self.identity_prompt_runtime = self._build_runtime_identity_prompt(identity_prompt)
@@ -212,10 +207,6 @@ class RuntimeOrchestrator:
 
         self._start_active_session()
 
-        if self.interactive_text and not self._skip_stdin:
-            logging.info("Type your message and press Enter. Use /quit to exit chat mode.")
-            threading.Thread(target=self._input_worker, daemon=True).start()
-
         if self.config.notification_server_port > 0:
             self._notification_server = NotificationServer(
                 "0.0.0.0",
@@ -233,19 +224,29 @@ class RuntimeOrchestrator:
 
         try:
             while True:
+                _loop_t0 = time.monotonic()
                 try:
                     sample = self.media_io.get_audio_sample()
                 except Exception as exc:
                     logging.warning("[%dms] get_audio_sample error: %s", self._elapsed_ms(), exc)
                     sample = None
+                _fetch_s = time.monotonic() - _loop_t0
                 if sample is not None:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
                     if self._mic_buffer is not None:
                         self._mic_buffer.append(self.input_sample_rate, sample, time.monotonic())
+                    tap = self._mic_tap
+                    if tap is not None:
+                        tap.append(sample)
 
+                _observe_s = time.monotonic() - _loop_t0 - _fetch_s
+                if _fetch_s + _observe_s > 0.3:
+                    logging.warning("Slow audio loop: fetch %.2fs observe %.2fs (%d samples)", _fetch_s, _observe_s, 0 if sample is None else len(sample))
                 if self.sleeping:
                     has_notification = not self._notification_queue.empty()
-                    if sample is not None and self.wakeword.process_sample(self.input_sample_rate, sample):
+                    if self.accept_text and self._take_wake_request():
+                        self._wake_from_sleep_mode()
+                    elif sample is not None and self.wakeword.process_sample(self.input_sample_rate, sample):
                         self._wake_from_sleep_mode()
                     elif has_notification:
                         self._wake_from_sleep_mode(send_wake_notice=False)
@@ -253,7 +254,7 @@ class RuntimeOrchestrator:
                         time.sleep(0.01)
                         continue
 
-                if sample is not None and self.realtime is not None and self.active_mode_uses_mic_recording:
+                if sample is not None and self.realtime is not None:
                     self.realtime.feed_audio(self.input_sample_rate, sample)
 
                 was_playing = self.playback_started
@@ -281,7 +282,7 @@ class RuntimeOrchestrator:
                         self._enter_sleep_mode()
                         continue
 
-                if self.interactive_text:
+                if self.accept_text:
                     should_exit = self._drain_text_queue()
                     if should_exit:
                         return
@@ -298,8 +299,6 @@ class RuntimeOrchestrator:
                         audio_chunks_total=self.audio_chunks_total,
                         responses_streamed=self.responses_streamed,
                         camera_worker=self.camera_worker,
-                        text_queue=self.text_queue if self.interactive_text else None,
-                        text_turns=self.text_turns if self.interactive_text else None,
                     )
 
                 if self._should_recover_realtime(now):
@@ -316,7 +315,6 @@ class RuntimeOrchestrator:
 
                 time.sleep(0.01)
         finally:
-            self.input_stop.set()
             if self.playback_started:
                 try:
                     self.media_io.stop_playing()
@@ -438,14 +436,26 @@ class RuntimeOrchestrator:
                     start = max(start, min(playback_end + 0.3, speech_ts))
                 if self._playback_cut_ts >= speech_ts - 0.5:
                     start = max(start, self._playback_cut_ts + 0.2)
-                emb = self._voice.embed(self._mic_buffer.window(start, end))
+                clip = self._mic_buffer.window(start, end)
+                logging.info(
+                    "[%dms] Turn voice clip: %.1fs, peak %.3f",
+                    self._elapsed_ms(), clip.size / 16000.0, float(np.abs(clip).max()) if clip.size else 0.0,
+                )
+                emb = self._voice.embed(clip)
             self._last_turn_voice_emb = emb
 
             voice_scores, voice_counts = None, {}
             if emb is not None:
                 voice_scores = self._voice.scores(emb)  # type: ignore[union-attr]
                 voice_counts = {name: self._voice.sample_count(name) for name in voice_scores}  # type: ignore[union-attr]
-            decision = fuse_speaker(face_name, face_score, voice_scores, voice_counts, FaceRecognizer.UNKNOWN)
+            # With several people in view and no sign of who is talking, a face is no evidence of the speaker:
+            # it is just the person the camera happened to pick (the old behavior answered everyone as the first).
+            decision = fuse_speaker(
+                face_name if face_certain else None, face_score if face_certain else 0.0,
+                voice_scores, voice_counts, FaceRecognizer.UNKNOWN,
+            )
+            if decision.name is None and not face_certain and self.camera_worker is not None:
+                self._note_unknown_speaker()
             logging.info(
                 "[%dms] Turn speaker: %s via %s after %.1fs (face=%s %.2f, voice=%s)",
                 self._elapsed_ms(), decision.name or "unchanged", decision.source, time.monotonic() - speech_ts,
@@ -461,6 +471,25 @@ class RuntimeOrchestrator:
             logging.warning("Speaker turn ID failed: %s", exc)
         finally:
             self._speaker_id_lock.release()
+
+    def _note_unknown_speaker(self) -> None:
+        """Several people are in view and nothing says who is talking: tell the model not to assume."""
+        names = [name or "pessoa não reconhecida" for _, name, _ in self.camera_worker.get_presence()]  # type: ignore[union-attr]
+        if len(names) < 2:
+            return
+        key = ",".join(sorted(names))
+        if key == getattr(self, "_ambiguous_notice_key", None):
+            return
+        self._ambiguous_notice_key = key
+        self._current_speaker = None
+        logging.info("[%dms] Speaker unclear among: %s", self._elapsed_ms(), ", ".join(names))
+        if self.realtime is not None:
+            self.realtime.send_text(
+                "SYSTEM NOTICE (não é mensagem do usuário): há várias pessoas à vista "
+                f"({', '.join(names)}) e não deu para saber quem está falando agora. Não presuma que é a mesma "
+                "pessoa de antes; se o pedido depender de quem fala, pergunte quem é.",
+                respond=False,
+            )
 
     def _set_turn_speaker(self, name: str) -> None:
         """Make `name` the current speaker and tell the model right away when it changed."""
@@ -672,12 +701,8 @@ class RuntimeOrchestrator:
             identity += "\n\n" + load_prompt("presence.md")
 
         callbacks = ConversationCallbacks(
-            on_speech_start=self._on_speech_start if self.active_mode_uses_mic_recording else None,
-            on_user_transcript=(
-                (lambda text: self._on_user_text(text, source="said"))
-                if self.active_mode_uses_mic_recording
-                else None
-            ),
+            on_speech_start=self._on_speech_start,
+            on_user_transcript=lambda text: self._on_user_text(text, source="said"),
             on_assistant_text=self._on_assistant_text,
             on_assistant_audio_chunk=self._on_assistant_audio_chunk,
             on_assistant_audio_done=self._on_assistant_audio_done,
@@ -698,7 +723,7 @@ class RuntimeOrchestrator:
 
         logging.info("[%dms] Realtime session connected", self._elapsed_ms())
 
-        if self.active_mode_uses_mic_recording and not self.recording_started:
+        if not self.recording_started:
             self.media_io.start_recording()
             self.recording_started = True
             logging.info("[%dms] Reachy microphone recording started", self._elapsed_ms())
@@ -706,7 +731,6 @@ class RuntimeOrchestrator:
         self.playback_started = False
         self.sleeping = False
         self.wakeword.reset()
-        self.wakeword.start_auto_calibration()
         self._mark_user_activity()
         if self._presence is not None:
             self._presence.reset(time.time())  # new session: whoever is in view is context, not a greeting
@@ -715,6 +739,13 @@ class RuntimeOrchestrator:
         """Stop active session and place runtime into wakeword-only sleep mode."""
         if self.sleeping:
             return
+        self.transitioning = "sleep"  # shown by the web UI: going to sleep takes several seconds
+        try:
+            self._enter_sleep_mode_now()
+        finally:
+            self.transitioning = ""
+
+    def _enter_sleep_mode_now(self) -> None:
 
         logging.info("[%dms] Entering sleep mode after %.1fs idle", self._elapsed_ms(), self.idle_sleep_timeout_s)
 
@@ -731,7 +762,7 @@ class RuntimeOrchestrator:
         self.realtime_recovery_requested = False
         self.realtime_next_recovery_at = 0.0
 
-        if self.active_mode_uses_mic_recording and self.recording_started:
+        if self.recording_started:
             try:
                 self.media_io.stop_recording()
             except Exception:
@@ -783,6 +814,13 @@ class RuntimeOrchestrator:
 
     def _wake_from_sleep_mode(self, *, send_wake_notice: bool = True) -> None:
         """Wake runtime from sleep mode and restore active realtime session."""
+        self.transitioning = "wake"
+        try:
+            self._wake_from_sleep_mode_now(send_wake_notice=send_wake_notice)
+        finally:
+            self.transitioning = ""
+
+    def _wake_from_sleep_mode_now(self, *, send_wake_notice: bool) -> None:
         self.sleep_after_response.clear()
         logging.info("[%dms] Offline wakeword detected, waking up", self._elapsed_ms())
 
@@ -844,6 +882,40 @@ class RuntimeOrchestrator:
             self.realtime.send_text(notice)
             self._mark_user_activity()
 
+    def record_mic_clip(self, seconds: float) -> np.ndarray:
+        """Block for `seconds` and return everything the microphone delivered meanwhile (16 kHz mono)."""
+        chunks: list = []
+        self._mic_tap = chunks
+        try:
+            time.sleep(seconds)
+        finally:
+            self._mic_tap = None
+        if not chunks:
+            logging.warning("Wakeword clip: the microphone delivered no audio in %.1fs", seconds)
+            return np.zeros(0, dtype=np.float32)
+        rate = self.input_sample_rate
+        audio = np.concatenate([resample_audio_chunk(_to_mono(chunk), rate, 16000) for chunk in chunks]).astype(np.float32)
+        logging.info("Wakeword clip: %d chunks, %.1fs of audio in %.1fs, peak %.4f", len(chunks), audio.size / 16000.0, seconds, float(np.abs(audio).max()))
+        return audio
+
+    def _take_wake_request(self) -> bool:
+        """While asleep, consume typed input: True when a /wake arrived (other text is dropped, /quit is kept)."""
+        wake, keep = False, []
+        while True:
+            try:
+                text = self.text_queue.get_nowait().strip()
+            except Empty:
+                break
+            if text.lower() == "/wake":
+                wake = True
+            elif text.lower() in {"/quit", "/exit"}:
+                keep.append(text)
+            elif text:
+                logging.info("[%dms] Ignoring text input while sleeping; wake Dobby first", self._elapsed_ms())
+        for text in keep:
+            self.text_queue.put(text)
+        return wake
+
     def _drain_text_queue(self) -> bool:
         """Process queued chat text inputs and return True when exit requested."""
         while True:
@@ -856,8 +928,15 @@ class RuntimeOrchestrator:
             if not text:
                 continue
             if text.lower() in {"/quit", "/exit"}:
-                logging.info("[%dms] Chat mode exit requested", self._elapsed_ms())
+                logging.info("[%dms] Exit requested", self._elapsed_ms())
                 return True
+            if text.lower() == "/sleep":
+                self._enter_sleep_mode()
+                continue
+            if text.lower() == "/wake":
+                if self.sleeping:
+                    self._wake_from_sleep_mode()
+                continue
 
             if self.sleeping:
                 logging.info("[%dms] Ignoring text input while sleeping; say wakeword to wake", self._elapsed_ms())
@@ -876,34 +955,9 @@ class RuntimeOrchestrator:
                 logging.warning("[%dms] Failed to queue chat turn", self._elapsed_ms())
                 continue
 
-            self.text_turns += 1
-
-    def _input_worker(self) -> None:
-        """Read stdin lines in chat mode and enqueue them for processing."""
-        while not self.input_stop.is_set():
-            try:
-                line = input("You> ")
-            except EOFError:
-                self.text_queue.put("/quit")
-                return
-            except KeyboardInterrupt:
-                self.text_queue.put("/quit")
-                return
-            self.text_queue.put(line)
 
     def _log_mode_start(self) -> None:
-        """Log startup context for chat or realtime mode."""
-        if self.interactive_text:
-            logging.info(
-                "Chat mode active model=%s transcribe=%s out_sr=%s tools=%s idle_sleep=%s",
-                self.config.realtime_model,
-                self.config.realtime_transcription_model,
-                self.output_sample_rate,
-                self.tool_runtime.names(),
-                self.idle_sleep_enabled,
-            )
-            return
-
+        """Log startup context."""
         logging.info(
             "Realtime mode active model=%s transcribe=%s silence=%sms padding=%sms out_sr=%s tools=%s idle_sleep=%s",
             self.config.realtime_model,

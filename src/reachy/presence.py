@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 # Track lifecycle
@@ -65,13 +65,6 @@ class Box:
         head_size = min(0.45 * self.width * aspect, 0.3 * self.height)  # in y units
         return self.center_x, self.y0 + head_size / 2
 
-    def head_box(self, aspect: float = 16 / 9) -> "Box":
-        """Generous square-ish region around the head, used to crop for face recognition."""
-        size = min(0.6 * self.width * aspect, 0.45 * self.height)  # in y units
-        hx, _ = self.head_point(aspect)
-        half_width = size / aspect
-        return Box(hx - half_width, max(0.0, self.y0 - 0.1 * size), hx + half_width, self.y0 + 1.6 * size)
-
 
 @dataclass
 class Track:
@@ -89,6 +82,7 @@ class Track:
     last_id_attempt: float = 0.0
     score: float = 0.0  # smoothed detector confidence
     face_seen: bool = False  # a face was found in the head region at least once
+    observations: list = field(default_factory=list)  # recent (name, similarity) face looks, newest last
 
     @property
     def confirmed(self) -> bool:

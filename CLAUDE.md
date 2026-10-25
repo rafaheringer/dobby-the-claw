@@ -17,14 +17,9 @@ The AI persona is "Dobby" — responds exclusively in Brazilian Portuguese by de
 ### Run
 
 ```bash
-# Realtime voice mode (requires mic + OpenAI API key)
-python -m bridge.main --mode realtime
-
-# Terminal chat mode (no audio hardware needed)
-python -m bridge.main --mode chat --no-headtracking
-
-# Rich TUI mode (Textual-based interface)
-python -m bridge.main --mode tui
+# Realtime voice (requires mic + API key for the conversation provider). The web UI (status, chat,
+# camera with detection overlays, filtered logs, controls) is served on http://localhost:18900.
+python -m bridge.main
 
 # Optional flags
 --no-headtracking          # Disable head tracking
@@ -100,7 +95,11 @@ All tools are registered in `build_tool_registry()` in `src/bridge/runtime/audio
 
 ### Runtime Modes
 
-`realtime_mode.py` and `chat_mode.py` are thin composition layers that build a `RuntimeOrchestrator`. Shared behavior belongs in `RuntimeOrchestrator`. The `tui_mode.py` wraps the orchestrator in a Textual-based UI.
+There is one mode: realtime voice. `realtime_mode.py` is a thin composition layer that builds the `RuntimeOrchestrator`; shared behavior belongs there. Unless `WEB_UI_ENABLED=0`, `main.py` also installs a log queue and starts the web UI (`src/web_ui/`: aiohttp server + static PWA) on its own thread. The pages feed typed turns and `/wake`, `/sleep` through `orchestrator.text_queue` (the hub refuses `/quit` and any other `/` text from the network). The camera stream with detection overlays comes from `CameraWorker.render_debug_frame()`.
+
+### Web UI security
+
+The server binds to `127.0.0.1` only. Requests that arrive through the Cloudflare tunnel (they carry `Cf-*`/`X-Forwarded-*` headers or a non-local Host) must present a valid Cloudflare Access JWT (`WEB_UI_ACCESS_TEAM_DOMAIN` + `WEB_UI_ACCESS_AUDIENCE`); without that config remote access is refused. Cross-origin writes and WebSocket upgrades are rejected, and secrets are masked in the logs sent to pages. Never bind it to `0.0.0.0` or expose the port without Access in front.
 
 ### REACHY_BRIDGE_URL
 
@@ -148,7 +147,8 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `STT_LANGUAGE` | `pt` | Speech recognition language |
 | `BRIDGE_LOG_LEVEL` | `INFO` | Log verbosity (`DEBUG`, `INFO`, `WARNING`) |
 | `OFFLINE_WAKEWORD_ENABLED` | `1` | Enable offline wakeword detection |
-| `OFFLINE_WAKEWORD_ALIASES` | `reachy,dobby` | Comma-separated wakeword names |
+| `OFFLINE_WAKEWORD_ALIASES` | `reachy,dobby` | Names that wake Dobby (speech bursts are transcribed locally with faster-whisper) |
+| `OFFLINE_WAKEWORD_MODEL` | `base` | Whisper model for the wake word (`base` or `small`) |
 | `REACHY_DIRECT_ALSA_AUDIO` | `1` | Use `arecord`/`aplay` instead of SDK GStreamer |
 | `OPENCLAW_ENABLED` | `1` | Enable OpenClaw task delegation |
 | `OPENCLAW_WS_URL` | `ws://127.0.0.1:18789` | OpenClaw WebSocket gateway URL |
@@ -161,3 +161,5 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `PRESENCE_ENABLED` | `1` | Person detection: follow distant people, choose whom to look at, presence notices for greetings (rules in `src/prompts/presence.md`) |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Persist per-speaker conversation summaries |
 | `NOTIFICATION_SERVER_PORT` | `18800` | HTTP port for injecting async notifications |
+| `WEB_UI_ENABLED` | `1` | Serve the web UI (PWA) on `WEB_UI_HOST:WEB_UI_PORT` (`127.0.0.1:18900`) |
+| `WEB_UI_ACCESS_TEAM_DOMAIN` / `WEB_UI_ACCESS_AUDIENCE` | — | Cloudflare Access team domain and application AUD; required for any non-local access |

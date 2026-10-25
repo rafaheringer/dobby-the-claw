@@ -8,9 +8,7 @@ from bridge.runtime.bootstrap import (
     start_runtime_workers,
     stop_runtime_workers,
 )
-from bridge.runtime.chat_mode import run_chat_loop
-from bridge.runtime.realtime_mode import run_realtime_loop
-from bridge.runtime.tui_mode import run_tui_loop
+from bridge.runtime.realtime_mode import build_orchestrator
 
 __all__ = [
     "ReachyRuntime",
@@ -19,7 +17,5 @@ __all__ = [
     "load_identity_prompt",
     "start_runtime_workers",
     "stop_runtime_workers",
-    "run_chat_loop",
-    "run_realtime_loop",
-    "run_tui_loop",
+    "build_orchestrator",
 ]

@@ -8,7 +8,7 @@ This document describes, in plain language, everything Dobby can do today. It is
 
 - **Call it by name.** Just say "Dobby" (or "Reachy") and it starts listening. No button is needed, and the robot notices its name without an internet connection.
 - **Natural conversation, in Brazilian Portuguese.** It answers in short sentences, and you can interrupt it mid-sentence.
-- **A personality of its own.** Sarcastic and irreverent, but helpful. When it can't do something on its own, it tries to get help instead of simply refusing.
+- **A personality of its own.** Proud, sarcastic and far from obedient: it grumbles, teases, holds small grudges and sometimes makes you ask twice before doing a silly request. When something matters (an emergency, a reminder you depend on, a door lock), the attitude stops and it helps. When it can't do something on its own, it tries to get help instead of simply refusing.
 - **Choice of voice engine.** Dobby can run on OpenAI Realtime or on Google Gemini Live (a setting in the configuration file); the rest of the features work the same on both.
 - **Automatic rest.** After a while without conversation it "goes to sleep" by itself and wakes up when you call it. You can also ask it to go to sleep; it finishes saying goodbye before dozing off.
 - **Knows when you're talking to it.** While awake, you can keep chatting without repeating its name, but when you talk to someone else, mention it in passing or the TV is on, it stays quiet. If it doesn't jump in, just call it by name. (Gemini voice engine only.)
@@ -31,7 +31,7 @@ This document describes, in plain language, everything Dobby can do today. It is
 
 ## People and memory
 
-- **Registering people.** You can introduce someone to Dobby ("this is John") and it will recognize them from then on.
+- **Registering people.** You can introduce someone to Dobby ("this is John") and it will recognize them from then on. Registering the same person a few times, up close and from farther away, makes recognition more reliable. When two people are in view it looks at each one's own face, only names someone after several consistent looks, and says "visitor" instead of guessing when the face is blurry or too small.
 - **Remembers each person.** It keeps facts and preferences you ask it to remember ("remember that I don't eat shrimp") and uses them in future conversations, kept separately per person.
 - **Remembers past conversations.** Summaries of earlier conversations help it continue where you left off.
 
@@ -82,5 +82,5 @@ The first task of the day can take about 30 seconds; later ones are usually fast
 ## Ways to use it
 
 - **By voice**, on the robot: the main way to use it.
-- **By text in the terminal**, without a microphone, useful for testing and for those who prefer typing.
-- **Visual terminal dashboard**, showing the conversation and the robot's state on screen.
+- **By text**, from the web page (computer or phone): you can type to Dobby while it keeps listening.
+- **Web page / phone app**: shows what the robot sees live (people, who is talking, where the voice comes from), the conversation, filterable logs, how loud the microphone is and what it heard while asleep, the state of the connected services, buttons to wake or put Dobby to sleep, and a settings page with a test that shows whether it understands you calling its name. It can be installed on the phone's home screen and is protected by a login.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import threading
 import time
 
 from bridge.config import BridgeConfig
@@ -12,23 +13,48 @@ from bridge.runtime import (
     configure_third_party_loggers,
     initialize_reachy_runtime,
     load_identity_prompt,
-    run_chat_loop,
-    run_realtime_loop,
-    run_tui_loop,
+    build_orchestrator,
     start_runtime_workers,
     stop_runtime_workers,
 )
 from bridge.state_machine import StateMachine
+from web_ui.logbus import install_log_queue
+from web_ui.server import start_web_ui
+
+
+EXIT_DAEMON_LOST = 75  # scripts/run-windows.ps1 relaunches the bridge on this code
+_DAEMON_LOST_AFTER_S = 10.0
+
+
+def _watch_daemon_connection(sdk_instance) -> None:
+    """Exit the process when the Reachy daemon connection stays down.
+
+    The SDK client never reconnects, and the camera, motion and audio workers all share it, so a
+    restart is the only clean recovery.
+    """
+    client = getattr(sdk_instance, "client", None)
+    if client is None or not hasattr(client, "is_connected"):
+        return
+    down_since = None
+    while True:
+        time.sleep(1.0)
+        try:
+            alive = bool(client.is_connected())
+        except Exception:
+            alive = False
+        if alive:
+            down_since = None
+            continue
+        down_since = down_since or time.monotonic()
+        if time.monotonic() - down_since >= _DAEMON_LOST_AFTER_S:
+            logging.error("Lost the Reachy daemon connection for %.0fs; exiting to be relaunched", _DAEMON_LOST_AFTER_S)
+            logging.shutdown()
+            os._exit(EXIT_DAEMON_LOST)
 
 
 def main() -> None:
-    """Start the bridge process in idle, realtime, or chat mode."""
+    """Start the bridge: realtime voice plus the web UI (status, chat, camera, logs)."""
     parser = argparse.ArgumentParser(description="Dobby bridge")
-    parser.add_argument(
-        "--mode",
-        choices=["idle", "realtime", "chat", "tui"],
-        default=os.getenv("BRIDGE_MODE", "realtime"),
-    )
     parser.add_argument(
         "--no-headtracking",
         action="store_true",
@@ -51,6 +77,7 @@ def main() -> None:
     configure_third_party_loggers(log_level)
 
     config = BridgeConfig.from_env()
+    log_queue = install_log_queue() if config.web_ui_enabled else None
     start_with_headtracking = config.head_tracking_enabled and (not args.no_headtracking)
     idle_sleep_timeout_s = (
         float(args.idle_sleep_timeout_s)
@@ -64,12 +91,6 @@ def main() -> None:
     logging.info("Bridge starting")
     logging.info("Log level: %s", log_level_name)
     logging.info("Reachy Bridge API: %s", config.reachy_bridge_url)
-    logging.info("Run mode: %s", args.mode)
-    logging.info(
-        "Vision debug window=%s log_interval=%.1fs",
-        config.vision_debug_window,
-        config.vision_debug_log_interval_s,
-    )
     logging.info(
         "Startup options: headtracking=%s idle_sleep_timeout_s=%.1f offline_wakeword=%s",
         start_with_headtracking,
@@ -78,6 +99,9 @@ def main() -> None:
     )
 
     try:
+        # The SDK's wake_up() does not energize the motors: with torque off (after sleep) its smooth
+        # move does nothing, and the later enable_motors() makes the head snap to the target.
+        runtime.reachy.enable_motors()
         runtime.reachy.wake_up()
         logging.info("Reachy wake_up sent")
     except Exception as exc:
@@ -93,49 +117,27 @@ def main() -> None:
         runtime.camera_worker.set_head_tracking_enabled(start_with_headtracking)
 
     start_runtime_workers(runtime)
+    if runtime.reachy_sdk_instance is not None:
+        threading.Thread(
+            target=_watch_daemon_connection, args=(runtime.reachy_sdk_instance,), name="daemon-watchdog", daemon=True
+        ).start()
+
+    orchestrator = build_orchestrator(
+        state_machine=state_machine,
+        reachy=runtime.reachy,
+        motion_manager=runtime.motion_manager,
+        camera_worker=runtime.camera_worker,
+        config=config,
+        reachy_sdk_instance=runtime.reachy_sdk_instance,
+        identity_prompt=identity_prompt,
+        idle_sleep_timeout_s=idle_sleep_timeout_s,
+        accept_text=config.web_ui_enabled,
+    )
 
     try:
-        if args.mode == "realtime":
-            run_realtime_loop(
-                state_machine=state_machine,
-                reachy=runtime.reachy,
-                motion_manager=runtime.motion_manager,
-                camera_worker=runtime.camera_worker,
-                config=config,
-                reachy_sdk_instance=runtime.reachy_sdk_instance,
-                identity_prompt=identity_prompt,
-                idle_sleep_timeout_s=idle_sleep_timeout_s,
-            )
-            return
-
-        if args.mode == "chat":
-            run_chat_loop(
-                state_machine=state_machine,
-                reachy=runtime.reachy,
-                motion_manager=runtime.motion_manager,
-                camera_worker=runtime.camera_worker,
-                config=config,
-                reachy_sdk_instance=runtime.reachy_sdk_instance,
-                identity_prompt=identity_prompt,
-                idle_sleep_timeout_s=idle_sleep_timeout_s,
-            )
-            return
-
-        if args.mode == "tui":
-            run_tui_loop(
-                state_machine=state_machine,
-                reachy=runtime.reachy,
-                motion_manager=runtime.motion_manager,
-                camera_worker=runtime.camera_worker,
-                config=config,
-                reachy_sdk_instance=runtime.reachy_sdk_instance,
-                identity_prompt=identity_prompt,
-                idle_sleep_timeout_s=idle_sleep_timeout_s,
-            )
-            return
-
-        while True:
-            time.sleep(1)
+        if log_queue is not None:
+            start_web_ui(orchestrator, config, log_queue)
+        orchestrator.run()
     except KeyboardInterrupt:
         logging.info("Bridge interrupted by user (Ctrl+C), shutting down")
     finally:

@@ -9,6 +9,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# mem0 reports usage to PostHog by default (and logs an SSL error whenever that upload fails).
+# It reads this switch at import time, so it must be set before the import below.
+os.environ.setdefault("MEM0_TELEMETRY", "False")
+
 try:
     from mem0 import Memory as _Mem0Memory
     _MEM0_AVAILABLE = True

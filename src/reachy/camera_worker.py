@@ -7,10 +7,9 @@ and smoothly interpolate back to neutral when tracking is lost.
 """
 
 import logging
-import os
-import platform
 import threading
 import time
+from collections import deque
 from dataclasses import replace
 from typing import Any, List, Optional, Tuple
 
@@ -36,6 +35,12 @@ except ImportError:  # pragma: no cover - hardware optional
 
 logger = logging.getLogger(__name__)
 
+_MISSING_FRAME_LOG_INTERVAL_S = 1.0
+_ID_WINDOW = 6  # recent face looks kept per tracked person
+_ID_VOTES = 2  # agreeing looks needed to name a person
+_ID_RETRY_S = 1.5  # between looks at someone not yet named
+_ID_RECHECK_S = 12.0  # between looks at someone already named
+
 
 class CameraWorker:
     """Thread-safe camera worker with frame buffering and face tracking."""
@@ -44,8 +49,6 @@ class CameraWorker:
         self,
         reachy_mini,
         head_tracker: Any = None,
-        debug_visual_window: bool = False,
-        debug_log_interval_s: float = 1.0,
         tracking_max_width: int = 640,
         tracking_fps: float = 15.0,
         antenna_finger_tracking_enabled: bool = True,
@@ -83,27 +86,8 @@ class CameraWorker:
         self._last_target_pixels: Optional[Tuple[float, float]] = None
         self._last_frame_size: Tuple[int, int] = (0, 0)
 
-        self._debug_visual_window = bool(debug_visual_window and cv2 is not None)
-        self._debug_window_name = "Reachy Vision Debug"
-        self._debug_window_failed = False
-        self._debug_log_interval_s = max(0.2, float(debug_log_interval_s))
-        self._last_debug_log_ts = 0.0
         self._last_missing_frame_log_ts = 0.0
         self._missing_frame_since_ts: float | None = None
-        # Opt-in: with the robot attached, probing the PC webcam whenever a robot frame is late
-        # makes the two cameras alternate.
-        self._allow_local_camera_fallback = bool(
-            platform.system() == "Windows"
-            and self._debug_visual_window
-            and cv2 is not None
-            and os.getenv("VISION_LOCAL_CAMERA_FALLBACK", "0").strip().lower() in ("1", "true", "yes", "on")
-        )
-        self._local_camera_capture = None
-        self._local_camera_index: int | None = None
-        self._using_local_camera_fallback = False
-        self._last_local_camera_probe_ts = 0.0
-        self._local_camera_retry_interval_s = 2.0
-        self._configure_debug_window_environment()
 
         self._head_tracker_missing_logged = False
         self._roll_controller = HeadRollController()
@@ -151,6 +135,9 @@ class CameraWorker:
         self._audio_doa_init_attempted = False
         self._doa_target_yaw_rad: float | None = None
         self._doa_active_until: float = 0.0
+        self._doa_lock = threading.Lock()  # one USB conversation with the mic array at a time
+        self._doa_speech: deque[tuple[float, float]] = deque(maxlen=80)  # (time, angle) while speech is heard
+        self._doa_thread: threading.Thread | None = None
 
         # Person detection: follow people too far away for the face tracker and choose whom to look at.
         self._person_detector = person_detector if getattr(person_detector, "available", False) else None
@@ -163,28 +150,11 @@ class CameraWorker:
         self._gaze = GazeSelector()
         self._gaze_target: Optional[Box] = None
         self._person_update_ts = 0.0
+        self._person_frame: Optional[NDArray[np.uint8]] = None  # the frame the tracks' boxes belong to
         self._person_aspect = 16 / 9  # frame width/height, to place heads inside normalized boxes
         self._person_period_s = 0.25
         self._person_thread: threading.Thread | None = None
         self._speaker_set_ts = 0.0
-
-    def _configure_debug_window_environment(self) -> None:
-        """Prepare Qt env vars to reduce noisy warnings in OpenCV debug windows."""
-        if not self._debug_visual_window:
-            return
-        if "QT_QPA_FONTDIR" in os.environ:
-            return
-
-        font_candidates = (
-            "/usr/share/fonts/truetype/dejavu",
-            "/usr/share/fonts/dejavu",
-            "/usr/share/fonts/truetype/liberation",
-        )
-        for path in font_candidates:
-            if os.path.isdir(path):
-                os.environ["QT_QPA_FONTDIR"] = path
-                logger.debug("Vision debug: QT_QPA_FONTDIR set to %s", path)
-                break
 
     def get_latest_frame(self) -> NDArray[np.uint8] | None:
         """Return the latest BGR frame copy in a thread-safe way."""
@@ -249,8 +219,10 @@ class CameraWorker:
                 people = len(verified)
                 if self._speaking_track is not None and self._speaking_track[1] >= asked_at:
                     speaking_box = next((t.box for t in verified if t.id == self._speaking_track[0]), None)
-        crop = self._head_crop(frame, speaking_box) if people > 1 and speaking_box is not None else None
-        result = self._face_recognizer.identify_face(crop) if crop is not None else None
+        result = None
+        if people > 1 and speaking_box is not None:
+            seen = self._face_recognizer.identify_person(frame, self._box_px(frame, speaking_box))
+            result = (seen.name, seen.score) if seen is not None else None
         if result is not None:
             name, confidence = result
         else:
@@ -266,18 +238,53 @@ class CameraWorker:
                 self._current_speaker = name
         return name, confidence
 
-    def _activate_doa_steering(self, duration_s: float = 2.5) -> None:
-        """Read DOA and activate temporary yaw steering toward the sound source."""
-        if not self._audio_doa_init_attempted:
-            self._audio_doa_init_attempted = True
-            if self._audio_doa_enabled and _AudioDoA is not None:
-                try:
-                    self._audio_doa = _AudioDoA()
-                    logger.info("AudioDoA initialized (lazy)")
-                except Exception as exc:
-                    logger.debug("AudioDoA not available: %s", exc)
+    def _doa_loop(self) -> None:
+        """Sample the mic array's direction of arrival and remember the angles heard while someone speaks.
+
+        One reading when the transcript arrives usually comes after the speech is over, so the angle must
+        be collected while the person talks. Started late: opening the device before the video pipeline
+        runs can disturb it.
+        """
+        if self._stop_event.wait(3.0):
+            return
         try:
-            angle_rad, speech_detected = self._audio_doa.get_DoA()  # type: ignore[union-attr]
+            doa = _AudioDoA()  # type: ignore[misc]
+        except Exception as exc:
+            logger.warning("AudioDoA not available, speaker direction disabled: %s", exc)
+            return
+        if not getattr(doa, "available", True):
+            logger.warning("No ReSpeaker microphone array found, speaker direction disabled")
+            return
+        self._audio_doa = doa
+        logger.info("AudioDoA sampling started")
+        while not self._stop_event.wait(0.12):
+            try:
+                with self._doa_lock:
+                    reading = doa.get_DoA()
+            except Exception as exc:
+                logger.debug("DOA read failed: %s", exc)
+                self._stop_event.wait(1.0)
+                continue
+            if reading is not None and reading[1]:
+                self._doa_speech.append((time.time(), float(reading[0])))
+
+    def _recent_speech_angle(self, window_s: float = 4.0) -> Optional[float]:
+        """Median arrival angle of the speech heard in the last `window_s` seconds, or None."""
+        cutoff = time.time() - window_s
+        angles = [angle for ts, angle in list(self._doa_speech) if ts >= cutoff]
+        return float(np.median(angles)) if len(angles) >= 3 else None
+
+    def _activate_doa_steering(self, duration_s: float = 2.5) -> None:
+        """Turn toward the sound source: temporary yaw steering from the direction heard while talking."""
+        try:
+            angle_rad = self._recent_speech_angle()
+            speech_detected = angle_rad is not None
+            if angle_rad is None:  # no speech sampled lately: take one reading as a weaker hint
+                with self._doa_lock:
+                    reading = self._audio_doa.get_DoA()  # type: ignore[union-attr]
+                if reading is None:
+                    return
+                angle_rad = float(reading[0])
             # Mapping: π/2 = front (yaw=0), 0 = left (+yaw), π = right (-yaw)
             yaw_target = float(np.clip(-(angle_rad - np.pi / 2) * 0.8, -1.2, 1.2))
             self._doa_target_yaw_rad = yaw_target
@@ -376,6 +383,7 @@ class CameraWorker:
             target = self._gaze.choose(verified or pet_tracks, now, speaker_name=speaker, speech_x=speech_x)
             self._gaze_target = None if target is None else target.box
             self._person_update_ts = now
+            self._person_frame = frame
             to_identify = self._next_track_to_identify(confirmed, now, target)
         if to_identify is not None:
             self._identify_track(frame, *to_identify)
@@ -404,56 +412,76 @@ class CameraWorker:
         return bearing_to_image_x(doa_yaw, head_yaw)
 
     def _next_track_to_identify(self, tracks: list[Track], now: float, target: Optional[Track]) -> Optional[tuple[int, Box]]:
-        """Pick one visible unnamed track whose face-ID retry is due (fewest attempts, then the gaze target)."""
+        """Pick one visible track whose face look is due: unnamed first, named ones re-checked now and then."""
         if self._face_recognizer is None or not self._face_recognizer.available:
             return None
-        due = [
-            t for t in tracks
-            if t.name is None and t.last_seen == now
-            and now - t.last_id_attempt >= (2.5 if t.id_attempts < 6 else 10.0)
-        ]
+
+        def interval(track: Track) -> float:
+            if track.name is not None:
+                return _ID_RECHECK_S  # still the same person? swaps happen when people cross or leave
+            return _ID_RETRY_S if track.id_attempts < 8 else 6.0
+
+        due = [t for t in tracks if t.last_seen == now and now - t.last_id_attempt >= interval(t)]
         if not due:
             return None
-        track = min(due, key=lambda t: (t.id_attempts, t is not target, -t.box.height))
+        track = min(due, key=lambda t: (t.name is not None, t.id_attempts, t is not target, -t.box.height))
         track.id_attempts += 1
         track.last_id_attempt = now
         return track.id, track.box
 
+    @staticmethod
+    def _box_px(frame: NDArray[np.uint8], box: Box) -> tuple[int, int, int, int]:
+        h, w = frame.shape[:2]
+        return int(box.x0 * w), int(box.y0 * h), int(box.x1 * w), int(box.y1 * h)
+
     def _identify_track(self, frame: NDArray[np.uint8], track_id: int, box: Box) -> None:
-        """Run face recognition on the head region of one person box."""
-        crop = self._head_crop(frame, box)
-        if crop is None:
-            return
-        result = self._face_recognizer.identify_face(crop)  # type: ignore[union-attr]
-        if result is None:
-            return
-        name, score = result
+        """Look at one person's face and fold the result into that track's identity."""
+        seen = self._face_recognizer.identify_person(frame, self._box_px(frame, box))  # type: ignore[union-attr]
+        if seen is None:
+            return  # face not visible or too poor to judge: no evidence either way
         with self._person_lock:
             tracks = self._person_tracker.tracks
             track = next((t for t in tracks if t.id == track_id), None)
             if track is None:
                 return
             track.face_seen = True
-            if name == FaceRecognizer.UNKNOWN:
-                return
-            for other in tracks:
-                if other is not track and other.name == name:
-                    if other.name_score >= score:
-                        return  # the same face can't be in two places; keep the better match
-                    other.name = None
-            track.name, track.name_score = name, score
-        logger.info("Person %d identified as %s (similarity=%.2f)", track_id, name, score)
+            track.observations = (track.observations + [(seen.name, seen.score)])[-_ID_WINDOW:]
+            self._settle_identity(track, tracks)
 
-    @staticmethod
-    def _head_crop(frame: NDArray[np.uint8], box: Box) -> Optional[NDArray[np.uint8]]:
-        """Head region of one person box, or None when too small to hold a face."""
-        h, w = frame.shape[:2]
-        region = box.head_box(w / float(h))
-        x0, x1 = int(max(0.0, region.x0) * w), int(min(1.0, region.x1) * w)
-        y0, y1 = int(max(0.0, region.y0) * h), int(min(1.0, region.y1) * h)
-        if x1 - x0 < 24 or y1 - y0 < 24:
-            return None
-        return frame[y0:y1, x0:x1]
+    def _settle_identity(self, track: Track, tracks: list[Track]) -> None:
+        """Name a track only when several looks agree; drop the name when looks stop agreeing."""
+        recent = track.observations
+        if track.name is not None:
+            last = recent[-2:]
+            if len(last) == 2 and all(name != track.name for name, _ in last):
+                logger.info("Person %d no longer matches %s; identifying again", track.id, track.name)
+                track.name, track.name_score = None, 0.0
+                track.observations = list(last)
+                recent = track.observations
+            else:
+                agreeing = [score for name, score in recent if name == track.name]
+                if agreeing:
+                    track.name_score = sum(agreeing) / len(agreeing)
+                return
+
+        votes: dict[str, list[float]] = {}
+        for name, score in recent:
+            if name != FaceRecognizer.UNKNOWN:
+                votes.setdefault(name, []).append(score)
+        if not votes:
+            return
+        name, scores = max(votes.items(), key=lambda item: (len(item[1]), sum(item[1])))
+        rivals = [len(other) for other_name, other in votes.items() if other_name != name]
+        if len(scores) < _ID_VOTES or (rivals and max(rivals) >= len(scores)):
+            return
+        score = sum(scores) / len(scores)
+        for other in tracks:
+            if other is not track and other.name == name:
+                if other.name_score >= score:
+                    return  # the same face can't be in two places; keep the better match
+                other.name, other.name_score = None, 0.0
+        track.name, track.name_score = name, score
+        logger.info("Person %d identified as %s (similarity=%.2f, %d looks)", track.id, name, score, len(scores))
 
     @property
     def speaker_face_certain(self) -> bool:
@@ -479,17 +507,17 @@ class CameraWorker:
         return people, speaker_id, frame
 
     def capture_track_faces(self, track_id: int, count: int = 4, interval_s: float = 0.35) -> list[NDArray[np.uint8]]:
-        """Head crops of one person over a few frames, following the track as they move."""
+        """Tight face crops of one person over a few frames, following the track as they move."""
         crops = []
         for index in range(count):
             if index:
                 time.sleep(interval_s)
-            frame = self.get_latest_frame()
-            with self._person_lock:
+            with self._person_lock:  # the box and the frame it was found in must come from the same moment
+                frame = self._person_frame
                 box = next((t.box for t in self._person_tracker.tracks if t.id == track_id), None)
             if frame is None or box is None:
                 continue
-            crop = self._head_crop(frame, box)
+            crop = self._face_recognizer.face_crop_for_person(frame, self._box_px(frame, box))  # type: ignore[union-attr]
             if crop is not None:
                 crops.append(crop.copy())
         return crops
@@ -529,6 +557,9 @@ class CameraWorker:
         if self._person_detector is not None:
             self._person_thread = threading.Thread(target=self._person_loop, daemon=True)
             self._person_thread.start()
+        if self._audio_doa_enabled and _AudioDoA is not None and self._doa_thread is None:
+            self._doa_thread = threading.Thread(target=self._doa_loop, daemon=True, name="doa")
+            self._doa_thread.start()
         logger.debug("Camera worker started")
 
     def stop(self) -> None:
@@ -539,18 +570,15 @@ class CameraWorker:
         if self._person_thread is not None:
             self._person_thread.join(timeout=3.0)
             self._person_thread = None
+        if self._doa_thread is not None:
+            self._doa_thread.join(timeout=2.0)
+            self._doa_thread = None
         with self._person_lock:  # people seen before sleeping are stale after waking up
             self._person_tracker = PersonTracker()
             self._pet_trackers = self._new_pet_trackers()
             self._gaze_target = None
             self._person_update_ts = 0.0
-        self._close_local_camera_fallback()
         self._finger_antenna_controller.close()
-        if self._debug_visual_window and cv2 is not None:
-            try:
-                cv2.destroyWindow(self._debug_window_name)
-            except Exception:
-                pass
         logger.debug("Camera worker stopped")
 
     def get_tracking_debug_snapshot(self) -> dict:
@@ -596,7 +624,6 @@ class CameraWorker:
                     if self._missing_frame_since_ts is None:
                         self._missing_frame_since_ts = current_time
                     self._maybe_emit_missing_frame_log(current_time)
-                    self._render_debug_placeholder(current_time)
                 else:
                     self._missing_frame_since_ts = None
                     with self.frame_lock:
@@ -753,8 +780,6 @@ class CameraWorker:
                                 self.interpolation_start_time = None
                                 self.interpolation_start_pose = None
 
-                    self._maybe_emit_debug_log(current_time)
-                    self._render_debug_visual(frame)
 
                 time.sleep(self._camera_loop_period_s)
             except Exception as exc:
@@ -764,15 +789,8 @@ class CameraWorker:
         logger.debug("Camera worker thread exited")
 
     def _read_camera_frame(self, current_time: float) -> NDArray[np.uint8] | None:
-        """Read a frame from Reachy SDK or Windows local webcam fallback."""
-        frame = self.reachy_mini.media.get_frame()
-        if frame is not None:
-            if self._using_local_camera_fallback:
-                logger.info("Reachy SDK camera frames recovered; disabling local camera fallback")
-                self._close_local_camera_fallback()
-            return frame
-
-        return self._read_local_camera_fallback(current_time)
+        """Read a frame from the Reachy SDK."""
+        return self.reachy_mini.media.get_frame()
 
     def _prepare_tracking_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
         """Downscale frames for CPU-bound tracking while preserving full-res snapshots."""
@@ -795,74 +813,6 @@ class CameraWorker:
             return False
         self._last_tracking_update_ts = current_time
         return True
-
-    def _read_local_camera_fallback(self, current_time: float) -> NDArray[np.uint8] | None:
-        """Read from a local Windows webcam when SDK frames are unavailable."""
-        if not self._allow_local_camera_fallback or cv2 is None:
-            return None
-
-        capture = self._local_camera_capture
-        if capture is None:
-            if (current_time - self._last_local_camera_probe_ts) < self._local_camera_retry_interval_s:
-                return None
-            self._last_local_camera_probe_ts = current_time
-            capture = self._open_local_camera_fallback()
-            if capture is None:
-                return None
-
-        ok, frame = capture.read()
-        if not ok or frame is None:
-            logger.warning("Local camera fallback failed to read a frame; retrying")
-            self._close_local_camera_fallback()
-            return None
-
-        return np.asarray(frame, dtype=np.uint8)
-
-    def _open_local_camera_fallback(self):
-        """Open the first usable Windows webcam for debug fallback."""
-        if cv2 is None:
-            return None
-
-        backend_candidates = []
-        if platform.system() == "Windows":
-            backend_candidates.append(cv2.CAP_DSHOW)
-        backend_candidates.append(cv2.CAP_ANY)
-
-        for index in (0, 1, 2):
-            for backend in backend_candidates:
-                capture = cv2.VideoCapture(index, backend)
-                if not capture.isOpened():
-                    capture.release()
-                    continue
-
-                ok, frame = capture.read()
-                if ok and frame is not None:
-                    self._local_camera_capture = capture
-                    self._local_camera_index = index
-                    self._using_local_camera_fallback = True
-                    logger.warning(
-                        "Reachy SDK camera unavailable; using local Windows camera index=%s for debug",
-                        index,
-                    )
-                    return capture
-
-                capture.release()
-
-        logger.warning("Reachy SDK camera unavailable and no local Windows camera fallback was opened")
-        return None
-
-    def _close_local_camera_fallback(self) -> None:
-        """Release local webcam fallback resources."""
-        capture = self._local_camera_capture
-        self._local_camera_capture = None
-        self._local_camera_index = None
-        self._using_local_camera_fallback = False
-        if capture is None:
-            return
-        try:
-            capture.release()
-        except Exception:
-            pass
 
     def _get_tracking_target(self, frame: NDArray[np.uint8]) -> Optional[Tuple[np.ndarray, float]]:
         """Return face target center and head tilt roll estimate in radians."""
@@ -990,118 +940,30 @@ class CameraWorker:
         _endpoint(float(imitated_roll_rad), (0, 255, 0), "app", cy + radius + 32)
         cv.putText(vis, "tilt", (cx - 18, cy + radius + 16), cv.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1, cv.LINE_AA)
 
-    def _maybe_emit_debug_log(self, current_time: float) -> None:
-        """Emit periodic compact tracking telemetry for debugging."""
-        if (current_time - self._last_debug_log_ts) < self._debug_log_interval_s:
-            return
-        self._last_debug_log_ts = current_time
-        snapshot = self.get_tracking_debug_snapshot()
-        offsets = snapshot["offsets"]
-        logger.debug(
-            "Vision debug enabled=%s face=%s lock=%s since=%.2fs eye=%s tilt=%.3f bias=%.3f imitated_roll=%.3f target=%s offs_xyz=(%.3f,%.3f,%.3f) offs_rpy=(%.3f,%.3f,%.3f) finger_active=%s fingers=%d ant=(%.3f,%.3f)",
-            snapshot["tracking_enabled"],
-            snapshot["face_detected_recently"],
-            snapshot["neutral_lock"],
-            snapshot["time_since_face_s"] if snapshot["time_since_face_s"] is not None else -1.0,
-            snapshot["eye_center"],
-            snapshot["head_tilt_rad"],
-            snapshot["head_tilt_bias_rad"],
-            snapshot["imitated_roll_rad"],
-            snapshot["target_pixels"],
-            offsets[0],
-            offsets[1],
-            offsets[2],
-            offsets[3],
-            offsets[4],
-            offsets[5],
-            snapshot["finger_control_active"],
-            snapshot["index_finger_count"],
-            snapshot["antenna_finger_offsets"][0],
-            snapshot["antenna_finger_offsets"][1],
-        )
-
     def _maybe_emit_missing_frame_log(self, current_time: float) -> None:
         """Log camera starvation periodically."""
-        if (current_time - self._last_missing_frame_log_ts) < self._debug_log_interval_s:
+        if (current_time - self._last_missing_frame_log_ts) < _MISSING_FRAME_LOG_INTERVAL_S:
             return
         elapsed = max(0.0, current_time - self._missing_frame_since_ts) if self._missing_frame_since_ts else 0.0
         if elapsed < 3.0:
             return
         self._last_missing_frame_log_ts = current_time
-        if self._using_local_camera_fallback:
-            logger.debug(
-                "Camera: using local fallback (index=%s)",
-                self._local_camera_index,
-            )
-            return
         logger.warning("Camera: no frames from Reachy SDK for %.0fs — check daemon video pipeline", elapsed)
 
-    def _render_debug_placeholder(self, current_time: float) -> None:
-        """Render a placeholder window while waiting for the first camera frame."""
-        if not self._debug_visual_window or cv2 is None or self._debug_window_failed:
-            return
-        try:
-            elapsed = 0.0 if self._missing_frame_since_ts is None else max(0.0, current_time - self._missing_frame_since_ts)
-            if self.latest_frame is not None and elapsed < 2.0:
-                cv2.waitKey(1)  # a late frame is normal: keep the last image instead of flashing the placeholder
-                return
-            vis = np.zeros((360, 640, 3), dtype=np.uint8)
-            cv2.putText(
-                vis,
-                "Reachy Vision Debug",
-                (24, 48),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (255, 255, 255),
-                2,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                vis,
-                "Waiting for camera frames from Reachy SDK...",
-                (24, 108),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.75,
-                (0, 215, 255),
-                2,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                vis,
-                f"head_tracking={self.is_head_tracking_enabled} elapsed={elapsed:.1f}s",
-                (24, 152),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                (180, 180, 180),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                vis,
-                "If this stays blank, inspect the remote daemon camera stream.",
-                (24, 210),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                (180, 180, 180),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.imshow(self._debug_window_name, vis)
-            cv2.waitKey(1)
-        except Exception as exc:
-            self._debug_window_failed = True
-            logger.warning("Vision debug window disabled after failure: %s", exc)
+    def render_debug_frame(
+        self, show_people: bool = True, show_tracking: bool = True, show_voice: bool = True
+    ) -> NDArray[np.uint8] | None:
+        """Latest frame with detection overlays for the debug UI, or None while there is no image."""
+        vis = self.get_latest_frame()
+        if vis is None or cv2 is None:
+            return None
+        font, line = cv2.FONT_HERSHEY_SIMPLEX, cv2.LINE_AA
+        h, w = vis.shape[:2]
+        center = (w // 2, h // 2)
+        cv2.drawMarker(vis, center, (255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=1)
+        now = time.time()
 
-    def _render_debug_visual(self, frame: NDArray[np.uint8]) -> None:
-        """Render optional visual overlay to inspect face detection and target mapping."""
-        if not self._debug_visual_window or cv2 is None or self._debug_window_failed:
-            return
-        try:
-            vis = frame.copy()
-            h, w = vis.shape[:2]
-            center = (w // 2, h // 2)
-            cv2.drawMarker(vis, center, (255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=20, thickness=1)
-
+        if show_people:
             with self._person_lock:
                 people = [
                     (t.box, t.name, t.box == self._gaze_target, self._person_tracker.is_verified(t), t.score, t.face_seen)
@@ -1116,82 +978,49 @@ class CameraWorker:
                 color = (0, 200, 255) if is_target else (0, 220, 120)
                 p0, p1 = (int(box.x0 * w), int(box.y0 * h)), (int(box.x1 * w), int(box.y1 * h))
                 cv2.rectangle(vis, p0, p1, color, 2)
-                cv2.putText(vis, f"{label} {score:.2f}", (p0[0] + 4, p0[1] + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+                cv2.putText(vis, f"{label} {score:.2f}", (p0[0] + 4, p0[1] + 22), font, 0.6, color, 2, line)
             for box, name, is_target, verified, score, face_seen in people:
                 # orange = gaze target, blue = person, gray = unverified (no face yet, weak score)
                 color = (0, 200, 255) if is_target else (200, 120, 0) if verified else (140, 140, 140)
                 p0, p1 = (int(box.x0 * w), int(box.y0 * h)), (int(box.x1 * w), int(box.y1 * h))
                 cv2.rectangle(vis, p0, p1, color, 2)
                 label = f"{name or '?'} {score:.2f}{' face' if face_seen else ''}"
-                cv2.putText(vis, label, (p0[0] + 4, p0[1] + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+                cv2.putText(vis, label, (p0[0] + 4, p0[1] + 22), font, 0.6, color, 2, line)
 
+        if show_voice:
+            speech_x = self._speech_image_x(now)
+            if speech_x is not None:
+                x = int(min(max(speech_x, 0.0), 1.0) * w)
+                cv2.line(vis, (x, 0), (x, h), (255, 0, 255), 2)
+                cv2.putText(vis, "voz", (min(x + 6, w - 50), h - 12), font, 0.6, (255, 0, 255), 2, line)
+
+        if show_tracking:
             if self._last_target_pixels is not None:
-                tx, ty = self._last_target_pixels
-                target = (int(tx), int(ty))
+                target = (int(self._last_target_pixels[0]), int(self._last_target_pixels[1]))
                 cv2.circle(vis, target, 8, (0, 255, 0), 2)
                 cv2.line(vis, center, target, (0, 255, 0), 1)
-
             with self.face_tracking_lock:
                 offsets = tuple(self.face_tracking_offsets)
-            face_detected = self.last_face_detected_time is not None and (time.time() - self.last_face_detected_time) <= self.face_lost_delay
+            face_detected = self.last_face_detected_time is not None and (now - self.last_face_detected_time) <= self.face_lost_delay
             status_color = (0, 220, 0) if face_detected else (0, 0, 220)
-            frame_source = "local" if self._using_local_camera_fallback else "reachy"
-            status_text = (
-                f"source={frame_source} tracking={self.is_head_tracking_enabled} "
-                f"face={face_detected} lock={self._roll_controller.is_neutral_locked}"
-            )
-            cv2.putText(vis, status_text, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2, cv2.LINE_AA)
-            cv2.putText(
-                vis,
-                f"xyz=({offsets[0]:+.3f},{offsets[1]:+.3f},{offsets[2]:+.3f})",
-                (10, 48),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (255, 255, 0),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                vis,
-                f"rpy=({offsets[3]:+.3f},{offsets[4]:+.3f},{offsets[5]:+.3f})",
-                (10, 70),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (255, 255, 0),
-                1,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                vis,
-                f"tilt_raw={self._last_head_tilt_rad:+.3f} bias={self._last_head_tilt_bias_rad:+.3f} filt={self._last_filtered_tilt_rad:+.3f} roll={self._last_imitated_roll_rad:+.3f}",
-                (10, 92),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (255, 255, 0),
-                1,
-                cv2.LINE_AA,
-            )
             hand_active, hand_offsets, finger_count = self.get_antenna_finger_control()
-            hand_color = (0, 255, 0) if hand_active else (150, 150, 150)
-            cv2.putText(
-                vis,
-                f"fingers={finger_count} antenna=({hand_offsets[0]:+.3f},{hand_offsets[1]:+.3f})",
-                (10, 114),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                hand_color,
-                1,
-                cv2.LINE_AA,
-            )
-
+            rows = [
+                (f"tracking={self.is_head_tracking_enabled} face={face_detected} lock={self._roll_controller.is_neutral_locked}", status_color, 0.6, 2),
+                (f"xyz=({offsets[0]:+.3f},{offsets[1]:+.3f},{offsets[2]:+.3f})", (255, 255, 0), 0.55, 1),
+                (f"rpy=({offsets[3]:+.3f},{offsets[4]:+.3f},{offsets[5]:+.3f})", (255, 255, 0), 0.55, 1),
+                (
+                    f"tilt_raw={self._last_head_tilt_rad:+.3f} bias={self._last_head_tilt_bias_rad:+.3f} "
+                    f"filt={self._last_filtered_tilt_rad:+.3f} roll={self._last_imitated_roll_rad:+.3f}",
+                    (255, 255, 0), 0.55, 1,
+                ),
+                (
+                    f"fingers={finger_count} antenna=({hand_offsets[0]:+.3f},{hand_offsets[1]:+.3f})",
+                    (0, 255, 0) if hand_active else (150, 150, 150), 0.55, 1,
+                ),
+            ]
+            for index, (text, color, scale, thickness) in enumerate(rows):
+                cv2.putText(vis, text, (10, 24 + 22 * index), font, scale, color, thickness, line)
             self._draw_tilt_indicator(
-                vis,
-                detected_tilt_rad=self._last_head_tilt_rad,
-                imitated_roll_rad=self._last_imitated_roll_rad,
+                vis, detected_tilt_rad=self._last_head_tilt_rad, imitated_roll_rad=self._last_imitated_roll_rad
             )
-
-            cv2.imshow(self._debug_window_name, vis)
-            cv2.waitKey(1)
-        except Exception as exc:
-            self._debug_window_failed = True
-            logger.warning("Vision debug window disabled after failure: %s", exc)
+        return vis
