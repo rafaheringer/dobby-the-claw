@@ -33,6 +33,7 @@ from homeassistant.home_assistant_client import HomeAssistantWsClient
 from bridge.runtime.bootstrap import load_prompt
 from bridge.runtime.common import apply_event, resample_audio_chunk
 from bridge.runtime.presence_notices import PresenceNotifier
+from bridge.runtime.touch import TouchDetector, TouchKind, TouchSpeechGate
 from bridge.runtime.speaker_id import MicRingBuffer, _to_mono, fuse_speaker
 from bridge.runtime.ports import (
     ConversationCallbacks,
@@ -45,6 +46,14 @@ from bridge.runtime.ports import (
 
 
 _conv_log = logging.getLogger("bridge.conversation")
+
+
+# Touch event -> (kind, phase) for RobotActionsPort.react_touch.
+_TOUCH_REACTIONS = {
+    TouchKind.PET_START: ("pet", "start"),
+    TouchKind.PET_END: ("pet", "end"),
+    TouchKind.TAP: ("tap", "start"),
+}
 
 
 class RuntimeOrchestrator:
@@ -80,7 +89,7 @@ class RuntimeOrchestrator:
         self.accept_text = accept_text  # debug UI feeds typed turns through text_queue
         self.wake_on_startup = wake_on_startup
         self.conversation_factory = conversation_factory or build_conversation_factory(config)
-        self.robot_actions = robot_actions or ReachyRobotActions(reachy)
+        self.robot_actions = robot_actions or ReachyRobotActions(reachy, motion_manager)
 
         if media_io is None:
             require_sdk_instance(reachy_sdk_instance)
@@ -131,6 +140,12 @@ class RuntimeOrchestrator:
         self._last_presence_poll = 0.0
         if config.presence_enabled and camera_worker is not None:
             self._presence = PresenceNotifier(greet_cooldown_s=config.presence_greet_cooldown_s)
+
+        self._touch: TouchDetector | None = None
+        self._touch_gate = TouchSpeechGate(cooldown_s=config.touch_speak_cooldown_s)
+        self._touch_deaf_until = 0.0
+        if config.touch_enabled:
+            self._touch = TouchDetector(pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak)
 
         self.tool_runtime = tool_runtime or build_tool_runtime(
             config,
@@ -233,6 +248,8 @@ class RuntimeOrchestrator:
                 _fetch_s = time.monotonic() - _loop_t0
                 if sample is not None:
                     self.wakeword.observe_sample(self.input_sample_rate, sample)
+                    if self._touch is not None:
+                        self._observe_touch(sample, time.monotonic())
                     if self._mic_buffer is not None:
                         self._mic_buffer.append(self.input_sample_rate, sample, time.monotonic())
                     tap = self._mic_tap
@@ -348,6 +365,29 @@ class RuntimeOrchestrator:
             return
         logging.info("[%dms] No reply to the last utterance; back to idle", self._elapsed_ms())
         apply_event(self.state_machine, Event.RESET, self.motion_manager)
+
+    def _observe_touch(self, sample: Any, now: float) -> None:
+        """Feed the touch detector and react to petting/taps (sound only while asleep)."""
+        deaf = (
+            self.playback_started
+            or now < self._playback_end_ts + 0.8
+            or now < self._touch_deaf_until
+        )
+        for event in self._touch.observe(self.input_sample_rate, sample, now, deaf=deaf):
+            kind, phase = _TOUCH_REACTIONS[event.kind]
+            logging.info(
+                "[%dms] Touch: %s (%.1fs)", self._elapsed_ms(), event.kind.value, event.duration_s
+            )
+            sound_s = self.robot_actions.react_touch(kind, phase, asleep=self.sleeping)
+            if sound_s > 0:
+                self._touch_deaf_until = now + sound_s + 0.3
+            if self.sleeping:
+                continue  # not user activity: touches must not keep Dobby awake
+            self.last_user_activity = now
+            text = self._touch_gate.notice(event, now)
+            if text is not None and self.realtime is not None:
+                logging.info("[%dms] Touch notice: %s", self._elapsed_ms(), text)
+                self.realtime.send_text(text, respond=True)
 
     def _maybe_send_presence_notice(self, now: float) -> None:
         """Tell the model who arrived, was recognized or left, only while the conversation is quiet."""
@@ -699,6 +739,8 @@ class RuntimeOrchestrator:
         identity = self.identity_prompt_runtime + ha_section + speaker_section
         if self._presence is not None:
             identity += "\n\n" + load_prompt("presence.md")
+        if self._touch is not None:
+            identity += "\n\n" + load_prompt("touch.md")
 
         callbacks = ConversationCallbacks(
             on_speech_start=self._on_speech_start,

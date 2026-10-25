@@ -159,6 +159,9 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `SPEAKER_ID_ENABLED` | `1` | Enable face-based speaker identification |
 | `VOICE_ID_ENABLED` | `1` | Also identify speakers by voice (sherpa-onnx), learned automatically from face matches |
 | `PRESENCE_ENABLED` | `1` | Person detection: follow distant people, choose whom to look at, presence notices for greetings (rules in `src/prompts/presence.md`) |
+| `TOUCH_ENABLED` | `1` | Detect petting and taps on the head from the mic array level; pose + sound, and a spoken request for more (rules in `src/prompts/touch.md`) |
+| `TOUCH_PET_DBFS` / `TOUCH_TAP_PEAK` | `-18` / `0.5` | 100 ms RMS level that counts as petting / sample peak that counts as a tap |
+| `TOUCH_SPEAK_COOLDOWN_S` | `300` | Minimum gap between spoken touch reactions of the same kind |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Persist per-speaker conversation summaries |
 | `NOTIFICATION_SERVER_PORT` | `18800` | HTTP port for injecting async notifications |
 | `WEB_UI_ENABLED` | `1` | Serve the web UI (PWA) on `WEB_UI_HOST:WEB_UI_PORT` (`127.0.0.1:18900`) |
