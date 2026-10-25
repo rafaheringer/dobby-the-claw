@@ -19,6 +19,13 @@ describe("keyDelta", () => {
     expect(keyDelta(key)).toEqual(delta);
   });
 
+  it("leaves browser shortcuts alone (Ctrl/Cmd/Alt)", () => {
+    expect(keyDelta("r", { ctrlKey: true })).toBeNull();
+    expect(keyDelta("f", { metaKey: true })).toBeNull();
+    expect(keyDelta("ArrowLeft", { altKey: true })).toBeNull();
+    expect(keyDelta("r", { shiftKey: true })).toEqual({ z: 0.002 });
+  });
+
   it("ignores case for letters and unknown keys", () => {
     expect(keyDelta("A")).toEqual({ yaw: 0.05 });
     expect(keyDelta("x")).toBeNull();

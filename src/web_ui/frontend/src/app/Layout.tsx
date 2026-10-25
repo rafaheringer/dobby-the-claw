@@ -31,7 +31,8 @@ export default function Layout() {
   const twin = pathname === "/twin";
   // The twin opens over the home page, which stays mounted (blurred) underneath.
   const pageKey = twin ? "/" : pathname;
-  const page = twin ? <Home /> : outlet;
+  // Same element for "/" and "/twin", so home is not remounted (camera restarted) when the twin opens.
+  const page = pageKey === "/" ? <Home /> : outlet;
   const dir = useDirection(sectionIndex(pageKey));
   const shift = reduced ? 0 : 24 * dir;
 
@@ -46,7 +47,8 @@ export default function Layout() {
             : { opacity: 1, filter: "blur(0px)", scale: 1, transitionEnd: { filter: "none", transform: "none" } }
         }
         transition={spring}
-        aria-hidden={twin || undefined}
+        // inert: the invisible app must not take clicks or focus (e.g. the real Sleep button)
+        inert={twin || undefined}
         className="mx-auto flex min-h-dvh max-w-[1500px] gap-4 lg:p-4"
       >
       <Sidebar />

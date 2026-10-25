@@ -62,6 +62,12 @@ describe("reduce", () => {
     expect(b.toasts[1].id).toBeGreaterThan(b.toasts[0].id);
   });
 
+  it("an error ends a wake test in progress (the server refused it)", () => {
+    const rec = reduce(initialLive, { type: "wake_state", recording: true, seconds: 3 });
+    const s = reduce(rec, { type: "error", text: "O detector de nome está desligado (OFFLINE_WAKEWORD_ENABLED=0)." });
+    expect(s.wakeTest).toMatchObject({ recording: false, thinking: false });
+  });
+
   it("onConnection closed clears wake recording and thinking", () => {
     const rec = reduce(initialLive, { type: "wake_state", recording: true, seconds: 3 });
     const s = onConnection(rec, "closed");

@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useLayoutEffect, useRef } from "react";
 import type { LogLine } from "../live/protocol";
 import { categoryColor } from "./categoryColors";
+import { followKey } from "./follow";
 
 const clock = (t: number) => new Date(t * 1000).toLocaleTimeString("pt-BR", { hour12: false });
 const LEVEL_COLOR: Record<number, string> = { 30: "var(--st-thinking)", 40: "var(--st-error)", 50: "var(--st-error)" };
@@ -20,9 +21,11 @@ export function LogList({ lines }: { lines: LogLine[] }) {
     getItemKey: (i) => lines[i].id,
   });
 
+  const follow = followKey(lines);
+  const count = lines.length;
   useLayoutEffect(() => {
-    if (stick.current && lines.length) virtual.scrollToIndex(lines.length - 1, { align: "end" });
-  }, [lines.length, virtual]);
+    if (stick.current && count) virtual.scrollToIndex(count - 1, { align: "end" });
+  }, [follow, count, virtual]);
 
   return (
     <div

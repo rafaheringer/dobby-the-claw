@@ -8,7 +8,7 @@ everything else is revalidated so a new build is picked up at once.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from aiohttp import web
 
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
 _IMMUTABLE = "public, max-age=31536000, immutable"
+_NOT_PAGES = ("api/", "ws/")
 _NO_CACHE = "no-cache"
 _TYPES = {".webmanifest": "application/manifest+json", ".wasm": "application/wasm", ".glb": "model/gltf-binary"}
 _MISSING = """<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Dobby</title>
@@ -34,6 +35,10 @@ def warn_if_missing(dist: Path) -> None:
 
 def _file(dist: Path, tail: str) -> Path | None:
     """The file under dist/ that tail names, or None (missing, a folder, or outside dist/)."""
+    # Refuse backslashes and drives before touching the filesystem: resolving a UNC path
+    # (\\host\share) would make Windows contact that host.
+    if "\\" in tail or ":" in tail or PureWindowsPath(tail).anchor:
+        return None
     root = dist.resolve()
     try:
         path = (root / tail).resolve()
@@ -60,6 +65,8 @@ def add_frontend_routes(app: web.Application, dist: Path) -> None:
         if not index.is_file():
             return web.Response(status=503, text=_MISSING, content_type="text/html", headers={"Cache-Control": _NO_CACHE})
         tail = request.match_info["tail"]
+        if tail.startswith(_NOT_PAGES) or tail == "ws":
+            raise web.HTTPNotFound()  # unknown API paths must not look like pages
         path = _file(dist, tail)
         if tail.startswith("assets/"):
             if path is None:

@@ -80,6 +80,23 @@ def test_traversal_is_refused(tmp_path):
         assert status in (200, 404), path
 
 
+def test_anchored_paths_are_refused_without_touching_them(tmp_path, monkeypatch):
+    # A UNC tail (\\host\share) would make Windows contact that host while resolving the path.
+    resolved = []
+    original = Path.resolve
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **k: resolved.append(str(self)) or original(self, *a, **k))
+    paths = ("/%5c%5chost%5cshare%5cx", "/C:%5cWindows%5cwin.ini", "/C:/Windows/win.ini", "/%5cetc%5cpasswd")
+    for path, (status, _, body) in zip(paths, _get_all(_app(_dist(tmp_path)), *paths)):
+        assert status in (200, 404), path
+        assert body in (INDEX, "404: Not Found"), path
+    assert not [p for p in resolved if "host" in p or "Windows" in p or "passwd" in p]
+
+
+def test_unknown_api_and_ws_paths_are_404(tmp_path):
+    for path, (status, _, _) in zip(("/api/nope", "/ws/x"), _get_all(_app(_dist(tmp_path)), "/api/nope", "/ws/x")):
+        assert status == 404, path
+
+
 def test_missing_dist_explains_build(tmp_path):
     status, _, body = _get(_app(tmp_path / "missing"), "/")
     assert status == 503

@@ -18,7 +18,10 @@ const KEYS: Record<string, Delta> = {
   f: { z: -Z_STEP },
 };
 
-/** How a key nudges the head target on the twin page, or null for other keys. */
-export function keyDelta(key: string): Delta | null {
+type Mods = Partial<Record<"ctrlKey" | "metaKey" | "altKey" | "shiftKey", boolean>>;
+
+/** How a key nudges the head target on the twin page, or null (other keys and browser shortcuts). */
+export function keyDelta(key: string, mods: Mods = {}): Delta | null {
+  if (mods.ctrlKey || mods.metaKey || mods.altKey) return null; // Ctrl+R, Ctrl+F… stay the browser's
   return KEYS[key.toLowerCase()] ?? null;
 }

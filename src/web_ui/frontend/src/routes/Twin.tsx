@@ -13,6 +13,8 @@ import { keyDelta } from "../twin/keys";
 import { Button } from "../ui/Button";
 import { cx } from "../ui/Glass";
 import { Pill } from "../ui/Pill";
+import { HeadIllustration } from "../twin/HeadIllustration";
+import { useStageStatus } from "../twin/stageStatus";
 
 const SWIPE_CLOSE_PX = 120;
 
@@ -21,7 +23,7 @@ function useTwinKeys() {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el?.closest("input, textarea, select, [role=slider], [role=menu]")) return;
-      const delta = keyDelta(e.key);
+      const delta = keyDelta(e.key, e);
       if (!delta) return;
       e.preventDefault();
       const t = robotLink.target();
@@ -55,6 +57,7 @@ function ModeSwitch() {
 export default function Twin() {
   const navigate = useNavigate();
   const { spring, fade, reduced } = useMotionPreset();
+  const failed = useStageStatus((s) => s.failed);
   const target = robotLink.useTarget();
   const close = () => closeTwin(navigate, window.history.state?.idx);
   useTwinKeys();
@@ -88,6 +91,12 @@ export default function Twin() {
         </div>
       </motion.header>
 
+      {failed && (
+        <div className="pointer-events-auto mx-4 mt-6 flex flex-col items-center gap-3 text-center lg:mr-[400px]">
+          <HeadIllustration className="w-28 opacity-80" />
+          <p className="glass rounded-2xl px-4 py-3 text-sm text-dim">O Dobby em 3D não pode ser mostrado neste aparelho. Os controles continuam funcionando.</p>
+        </div>
+      )}
       <motion.section
         variants={panel}
         initial="hidden"

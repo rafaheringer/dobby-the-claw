@@ -61,8 +61,11 @@ export function reduce(s: LiveState, m: ServerMessage, now: number = Date.now() 
       const entry = { text: m.text, hit: m.hit, silent: m.silent, t: now };
       return { ...s, wakeTest: { ...s.wakeTest, recording: false, thinking: false, tries: [entry, ...s.wakeTest.tries].slice(0, MAX_TRIES) } };
     }
-    case "error":
-      return withToast(s, m.text);
+    case "error": {
+      // The server answers a refused wake test (detector off, test already running) with an error.
+      const wakeTest = { ...s.wakeTest, recording: false, thinking: false };
+      return withToast({ ...s, wakeTest }, m.text);
+    }
   }
 }
 
