@@ -156,6 +156,7 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `GEMINI_THINKING_LEVEL` | `low` | Only for the extended-thinking model (`low`/`medium`/`high`) |
 | `GEMINI_VOICE` | — | Optional prebuilt Gemini voice name (for example `Algenib`) |
 | `GEMINI_VOICE_STYLE` | — | Free-text delivery style added to the system prompt (tone, pace, mood) |
+| `VOICE_PITCH` | `1.0` | Plays the voice that much faster: higher and quicker (0.8-1.5), for any provider |
 | `GEMINI_PROACTIVE_AUDIO` | `1` | Gemini decides whether speech is addressed to Dobby and stays silent otherwise (rules in `src/prompts/addressing.md`; uses the v1alpha Live API) |
 | `STT_LANGUAGE` | `pt` | Speech recognition language |
 | `BRIDGE_LOG_LEVEL` | `INFO` | Log verbosity (`DEBUG`, `INFO`, `WARNING`) |
@@ -178,5 +179,6 @@ All runtime config is via environment variables (see `.env.example`). Key variab
 | `MIC_FIXED_GAIN` | `2.0` | Mic array gain, kept with the XMOS AGC off (checked every 5 s): the AGC collapses when the head is touched and boosts room noise up to 64x in silence. `0` leaves the AGC on |
 | `SPEAKER_MEMORY_ENABLED` | `0` | Persist per-speaker conversation summaries |
 | `NOTIFICATION_SERVER_PORT` | `18800` | HTTP port for injecting async notifications |
+| `REACHY_DAEMON_URL` | `http://127.0.0.1:8000` | Reachy daemon REST API: the web UI's speaker/mic volume (and sound direction when the bridge has no camera worker) |
 | `WEB_UI_ENABLED` | `1` | Serve the web UI (PWA) on `WEB_UI_HOST:WEB_UI_PORT` (`127.0.0.1:18900`) |
 | `WEB_UI_ACCESS_TEAM_DOMAIN` / `WEB_UI_ACCESS_AUDIENCE` | — | Cloudflare Access team domain and application AUD; required for any non-local access |

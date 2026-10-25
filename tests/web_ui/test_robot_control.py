@@ -132,3 +132,13 @@ def test_without_a_motion_manager_nothing_is_available():
     control = RobotControl(None, None, lambda: False)
     assert control.snapshot() is None
     assert control.set_manual(True, owner="a")
+
+
+def test_the_head_follows_the_body_past_its_turn_range():
+    from reachy.manual import HEAD_TURN_MAX, ManualTarget
+
+    t = ManualTarget.from_message({"yaw": 0.0, "yawBody": 2.0})
+    assert abs(t.yaw - (2.0 - HEAD_TURN_MAX)) < 1e-9 and t.body_yaw == 2.0
+    # Looking far to the side is fine as long as the body turns too.
+    t = ManualTarget.from_message({"yaw": 2.2, "yawBody": 1.4})
+    assert abs(t.yaw - 2.2) < 1e-9

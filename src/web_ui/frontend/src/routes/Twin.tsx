@@ -3,7 +3,7 @@ import { motion, type Variants } from "motion/react";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useMotionPreset } from "../app/motion";
-import { LIMITS, robotLink, type RobotTarget } from "../robot";
+import { HEAD_TURN_MAX, LIMITS, robotLink, type RobotTarget } from "../robot";
 import { closeTwin } from "../twin/close";
 import { CircularSlider } from "../twin/controls/CircularSlider";
 import { EmotionMenu } from "../twin/controls/EmotionMenu";
@@ -142,9 +142,10 @@ export default function Twin() {
           <motion.div variants={item} className="flex items-end justify-between">
             <Joystick
               label="Cabeça"
-              x={-target.yaw / LIMITS.yaw[1]}
+              // relative to the body: the head's own turn range
+              x={(target.yawBody - target.yaw) / HEAD_TURN_MAX}
               y={target.pitch / LIMITS.pitch[1]}
-              onChange={(x, y) => set({ yaw: -x * LIMITS.yaw[1], pitch: y * LIMITS.pitch[1] })}
+              onChange={(x, y) => set({ yaw: target.yawBody - x * HEAD_TURN_MAX, pitch: y * LIMITS.pitch[1] })}
             />
             <LinearSlider vertical label="Altura" value={target.z} min={LIMITS.z[0]} max={LIMITS.z[1]} onChange={(z) => set({ z })} />
             <CircularSlider label="Corpo" value={target.yawBody} min={LIMITS.yawBody[0]} max={LIMITS.yawBody[1]} onChange={(yawBody) => set({ yawBody })} />

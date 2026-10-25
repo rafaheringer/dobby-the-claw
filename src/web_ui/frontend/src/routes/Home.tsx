@@ -1,10 +1,9 @@
-import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { useShallow } from "zustand/react/shallow";
+import { AudioCard } from "../home/AudioCard";
 import { CameraCard } from "../home/CameraCard";
 import { Indicators } from "../home/Indicators";
 import { useLive } from "../live/store";
-import { robotLink } from "../robot";
 import { TwinSlot } from "../twin/TwinSlot";
 import { Card, CardHeader } from "../ui/Surface";
 import { PageTitle } from "../ui/PageTitle";
@@ -36,33 +35,9 @@ function RecentChat() {
   );
 }
 
-function TwinCard() {
-  const { simulated, mode } = robotLink.useLinkState();
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader
-        end={
-          simulated ? (
-            <span className="label">Simulado</span>
-          ) : (
-            <span className="label flex items-center gap-1.5 text-text">
-              <span className="size-1.5 rounded-full bg-accent" />
-              {mode === "manual" ? "Manual" : "Ao vivo"}
-            </span>
-          )
-        }
-      >
-        Gêmeo digital
-      </CardHeader>
-      <div className="bg-subtle">
-        <TwinSlot className="mx-auto aspect-square w-full max-w-[280px] lg:aspect-[16/10] lg:max-w-none" />
-      </div>
-      <Link to="/twin" className="flex h-11 items-center justify-between border-t border-line px-3 font-mono text-xs font-medium uppercase tracking-[0.08em] hover:bg-subtle">
-        Abrir controles
-        <ArrowRight className="size-4" />
-      </Link>
-    </Card>
-  );
+/** Dobby's head, free on the page (no card); clicking it opens the full twin and its controls. */
+function TwinHead() {
+  return <TwinSlot className="mx-auto aspect-square w-full max-w-[280px] lg:aspect-[16/10] lg:max-w-none" />;
 }
 
 export default function Home() {
@@ -78,7 +53,7 @@ export default function Home() {
       >Início</PageTitle>
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-5">
         <div className="lg:order-2 lg:flex lg:flex-col lg:gap-5">
-          <TwinCard />
+          <TwinHead />
           <div className="hidden lg:flex lg:flex-1 lg:flex-col">
             <RecentChat />
           </div>
@@ -86,6 +61,7 @@ export default function Home() {
         <div className="flex flex-col gap-4 lg:order-1 lg:gap-5">
           <CameraCard />
           <Indicators />
+          <AudioCard />
         </div>
       </div>
     </div>

@@ -42,6 +42,25 @@ export interface ChatEntry {
   text: string;
 }
 
+export interface Volume {
+  volume: number; // 0-100
+  device: string;
+  platform: string;
+}
+
+/** Speaker and microphone volume as the Reachy daemon reports them (null: daemon unreachable). */
+export interface Volumes {
+  speaker: Volume | null;
+  mic: Volume | null;
+}
+
+/** 10 per second: the mic level and where sound comes from (angle in radians: 0 left, pi/2 front, pi right). */
+export interface AudioSample {
+  type: "audio";
+  rms: number | null;
+  doa: { angle: number; speech: boolean } | null;
+}
+
 /** The pose the robot is commanded to (15 per second), and whether a page is driving it. */
 export interface RobotSnapshot {
   type: "robot";
@@ -51,8 +70,10 @@ export interface RobotSnapshot {
 }
 
 export type ServerMessage =
-  | { type: "hello"; categories: string[]; logs: LogLine[]; chat: ChatEntry[]; status: Status; robot: RobotSnapshot | null }
+  | { type: "hello"; categories: string[]; logs: LogLine[]; chat: ChatEntry[]; status: Status; robot: RobotSnapshot | null; volumes?: Volumes }
   | RobotSnapshot
+  | AudioSample
+  | ({ type: "volumes" } & Volumes)
   | ({ type: "status" } & Status)
   | { type: "logs"; lines: LogLine[] }
   | { type: "chat"; entry: ChatEntry }
@@ -69,4 +90,5 @@ export type ClientMessage =
   | { type: "wake_test" }
   | { type: "robot_mode"; manual: boolean }
   | { type: "robot_target"; target: Partial<RobotTarget> }
-  | { type: "robot_emotion"; name: EmotionName };
+  | { type: "robot_emotion"; name: EmotionName }
+  | { type: "volume"; device: keyof Volumes; volume: number };

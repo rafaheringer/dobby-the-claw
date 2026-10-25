@@ -14,4 +14,4 @@ onRobot((r) => live.onSnapshot(r));
 
 export const robotLink: RobotLink = live;
 export type { EmotionName, LinkState, RobotLink, RobotPose, RobotTarget } from "./types";
-export { LIMITS, ZERO_TARGET } from "./pose";
+export { HEAD_TURN_MAX, LIMITS, ZERO_TARGET } from "./pose";

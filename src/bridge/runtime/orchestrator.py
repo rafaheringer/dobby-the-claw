@@ -191,7 +191,9 @@ class RuntimeOrchestrator:
         self.pending_recovery_notice: str | None = None
 
         self.output_sample_rate = self.media_io.get_output_audio_samplerate()
-        self.realtime_output_rate = 24000
+        # The model speaks at 24 kHz; playing it as if it were faster raises the voice and quickens it
+        # by the same factor (VOICE_PITCH), which no prebuilt voice does on its own.
+        self.realtime_output_rate = round(24000 * self.config.voice_pitch)
         self.input_sample_rate = self.media_io.get_input_audio_samplerate()
 
         self._ha_client = ha_client
@@ -337,6 +339,7 @@ class RuntimeOrchestrator:
                     self._enter_sleep_mode()
 
                 self._reset_if_unanswered(now)
+                self._finish_response(now)
                 self._drain_notification_queue()
                 self._maybe_send_presence_notice(now)
 
@@ -365,6 +368,14 @@ class RuntimeOrchestrator:
     def _elapsed_ms(self) -> int:
         """Return elapsed orchestrator runtime in milliseconds."""
         return int((time.monotonic() - self.loop_start) * 1000)
+
+    def _finish_response(self, now: float) -> None:
+        """Back to idle once the answer has been fully played (EXECUTING lasts while Dobby speaks)."""
+        if self.state_machine.state != State.EXECUTING:
+            return
+        if not self.audio_queue.empty() or now < self._playback_end_ts + 0.3:
+            return
+        apply_event(self.state_machine, Event.RESPONSE_READY, self.motion_manager)
 
     def _reset_if_unanswered(self, now: float) -> None:
         """Leave the listening pose when the model chose not to answer (speech not meant for it)."""

@@ -20,6 +20,7 @@ import cv2
 from aiohttp import WSMsgType, web
 
 from bridge.status_checks import check_service_up, get_pi_stats
+from web_ui.audio_control import DaemonAudio
 from web_ui.access import AccessPolicy, AccessVerifier, make_guard
 from web_ui.frontend_routes import FRONTEND_DIST, add_frontend_routes, warn_if_missing
 from web_ui.logbus import CATEGORIES, LogLine, redact
@@ -40,6 +41,8 @@ _VIDEO_MAX_WIDTH = 1280
 _USER_TEXT = re.compile(r"User (said|typed): (.*)", re.S)
 _LOG_LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO}
 _ROBOT_PERIOD_S = 1 / 15  # pose stream to the 3D twin
+_AUDIO_PERIOD_S = 0.1  # mic level and sound direction, for the home page's waveform
+_VOLUME_POLL_S = 5.0  # volumes changed elsewhere (the official app, the OS) show up this late
 
 
 class Hub:
@@ -69,6 +72,7 @@ class Hub:
             orchestrator.tool_runtime.execute,
             lambda: bool(orchestrator.sleeping or orchestrator.transitioning),
         )
+        self.audio = DaemonAudio(config.reachy_daemon_url)
         provider = config.conversation_provider
         self.model = f"{provider} · {config.gemini_live_model if provider == 'gemini' else config.realtime_model}"
 
@@ -108,6 +112,7 @@ class Hub:
             "chat": list(self.chat),
             "status": self.status(),
             "robot": self.robot.snapshot(),
+            "volumes": self.audio.volumes,
         }
 
     # ------------------------------------------------------------------ background work
@@ -162,6 +167,44 @@ class Hub:
             except Exception as exc:
                 logger.debug("Web UI robot stream failed: %s", exc)
             await asyncio.sleep(_ROBOT_PERIOD_S)
+
+    async def audio_loop(self) -> None:
+        """Stream the mic level and the sound direction while a page is open."""
+        wake = self.orch.wakeword
+        while True:
+            started = time.monotonic()
+            if self.clients:
+                try:
+                    rms = round(wake.last_rms, 5) if wake.enabled else None
+                    await self.broadcast({"type": "audio", "rms": rms, "doa": await self._doa()})
+                except Exception as exc:
+                    logger.debug("Web UI audio stream failed: %s", exc)
+            await asyncio.sleep(max(0.02, _AUDIO_PERIOD_S - (time.monotonic() - started)))
+
+    async def _doa(self) -> Optional[dict]:
+        # The bridge reads the mic array itself when it has the camera worker; the daemon then has nothing.
+        if self.camera is not None:
+            reading = self.camera.latest_doa()
+            return None if reading is None else {"angle": round(reading[0], 3), "speech": reading[1]}
+        return await self.audio.doa()
+
+    async def volume_loop(self) -> None:
+        while True:
+            if self.clients:
+                before = dict(self.audio.volumes)
+                if await self.audio.refresh() != before:
+                    await self.broadcast({"type": "volumes", **self.audio.volumes})
+            await asyncio.sleep(_VOLUME_POLL_S)
+
+    async def volume_command(self, message: dict, ws: web.WebSocketResponse) -> None:
+        value = message.get("volume")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            error = "volume inválido"
+        else:
+            error = await self.audio.set_volume(str(message.get("device", "")), int(value))
+        if error and not ws.closed:
+            await ws.send_str(json.dumps({"type": "error", "text": error}, ensure_ascii=False))
+        await self.broadcast({"type": "volumes", **self.audio.volumes})
 
     async def robot_command(self, message: dict, ws: web.WebSocketResponse) -> Optional[str]:
         """Manual control from the twin; `ws` owns manual mode until it switches back or disconnects."""
@@ -337,6 +380,11 @@ async def _ws(request: web.Request) -> web.StreamResponse:
                 if allowance < 1.0:
                     continue
                 allowance -= 1.0
+                if isinstance(payload, dict) and payload.get("type") == "volume":
+                    task = asyncio.create_task(hub.volume_command(payload, ws))
+                    hub.tasks.add(task)
+                    task.add_done_callback(hub.tasks.discard)
+                    continue
                 if isinstance(payload, dict) and str(payload.get("type", "")).startswith("wake_"):
                     task = asyncio.create_task(hub.wake_command(payload, ws))  # recording takes seconds: don't hold the socket
                     hub.tasks.add(task)  # the loop only keeps weak references to tasks
@@ -424,7 +472,9 @@ def start_web_ui(orchestrator: "RuntimeOrchestrator", config: "BridgeConfig", lo
             "Web UI on http://%s:%d (remote access %s)",
             config.web_ui_host, config.web_ui_port, "guarded by Cloudflare Access" if policy.configured else "OFF: Access not configured",
         )
-        tasks = [asyncio.create_task(coro) for coro in (hub.pump(), hub.status_loop(), hub.services_loop(), hub.robot_loop())]
+        await hub.audio.refresh()
+        loops = (hub.pump(), hub.status_loop(), hub.services_loop(), hub.robot_loop(), hub.audio_loop(), hub.volume_loop())
+        tasks = [asyncio.create_task(coro) for coro in loops]
         try:
             await asyncio.Event().wait()
         finally:

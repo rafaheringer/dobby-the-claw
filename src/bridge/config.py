@@ -94,11 +94,13 @@ class BridgeConfig:
     gemini_thinking_level: str = "low"
     gemini_voice: str = ""
     gemini_voice_style: str = ""
+    voice_pitch: float = 1.0
     gemini_proactive_audio: bool = True
     voice_id_enabled: bool = True
     web_ui_enabled: bool = True
     web_ui_host: str = "127.0.0.1"
     web_ui_port: int = 18900
+    reachy_daemon_url: str = "http://127.0.0.1:8000"
     web_ui_access_team_domain: str = ""
     web_ui_access_audience: str = ""
     web_ui_allowed_emails: tuple[str, ...] = ()
@@ -187,11 +189,13 @@ class BridgeConfig:
             gemini_thinking_level=os.getenv("GEMINI_THINKING_LEVEL", "low").strip(),
             gemini_voice=os.getenv("GEMINI_VOICE", "").strip(),
             gemini_voice_style=os.getenv("GEMINI_VOICE_STYLE", "").strip(),
+            voice_pitch=min(1.5, max(0.8, float(os.getenv("VOICE_PITCH", "1.0")))),
             gemini_proactive_audio=_env_flag("GEMINI_PROACTIVE_AUDIO", True),
             voice_id_enabled=_env_flag("VOICE_ID_ENABLED", True),
             web_ui_enabled=_env_flag("WEB_UI_ENABLED", True),
             web_ui_host=os.getenv("WEB_UI_HOST", "127.0.0.1").strip(),
             web_ui_port=int(os.getenv("WEB_UI_PORT", "18900")),
+            reachy_daemon_url=os.getenv("REACHY_DAEMON_URL", "http://127.0.0.1:8000").strip(),
             web_ui_access_team_domain=os.getenv("WEB_UI_ACCESS_TEAM_DOMAIN", "").strip(),
             web_ui_access_audience=os.getenv("WEB_UI_ACCESS_AUDIENCE", "").strip(),
             web_ui_allowed_emails=tuple(

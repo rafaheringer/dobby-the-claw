@@ -18,14 +18,17 @@ from reachy_mini.utils import create_head_pose
 
 from reachy.motion import FullBodyPose, Move
 
-# Same ranges as the page's controls (frontend/src/robot/pose.ts). Metres and radians.
+# Same ranges as the page's controls (frontend/src/robot/pose.ts). Metres and radians. The head's
+# yaw is relative to the fixed base, like the SDK's head pose; it also has to stay within
+# HEAD_TURN_MAX of the body's yaw (the SDK's mechanical limit is 65 degrees).
+HEAD_TURN_MAX = 1.1
 LIMITS: dict[str, tuple[float, float]] = {
     "x": (-0.02, 0.02),
     "y": (-0.02, 0.02),
     "z": (-0.04, 0.025),
     "roll": (-0.5, 0.5),
     "pitch": (-0.6, 0.6),
-    "yaw": (-1.1, 1.1),
+    "yaw": (-2.6, 2.6),
     "antenna": (-2.5, 2.5),
     "yawBody": (-2.8, 2.8),
 }
@@ -79,7 +82,10 @@ class ManualTarget:
             )
         if "yawBody" in message:
             values["body_yaw"] = _clamp(_number(message["yawBody"]), "yawBody")
-        return replace(t, **values)
+        out = replace(t, **values)
+        # Past its turn range the head follows the body.
+        yaw = min(out.body_yaw + HEAD_TURN_MAX, max(out.body_yaw - HEAD_TURN_MAX, out.yaw))
+        return replace(out, yaw=_clamp(yaw, "yaw"))
 
     def to_message(self) -> dict:
         r = lambda v: round(float(v), 4)

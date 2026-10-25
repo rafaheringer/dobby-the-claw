@@ -1,9 +1,12 @@
 import { create } from "zustand";
-import type { ClientMessage, RobotSnapshot } from "./protocol";
+import type { AudioSample, ClientMessage, RobotSnapshot } from "./protocol";
 import { initialLive, onConnection, reduce, withToast, type LiveState } from "./reducer";
 import { connectLive } from "./socket";
 
 export const useLive = create<LiveState>(() => initialLive);
+
+/** The latest mic level and sound direction (null until the bridge sends one). */
+export const useAudio = create<{ sample: AudioSample | null }>(() => ({ sample: null }));
 
 let link: ReturnType<typeof connectLive> | null = null;
 
@@ -38,8 +41,12 @@ export function startLive(): void {
   link = connectLive(url, {
     onMessage: (m) => {
       if (m.type === "robot" || m.type === "hello") robotListeners.forEach((fn) => fn(m.type === "robot" ? m : m.robot));
-      if (m.type !== "robot") useLive.setState((s) => reduce(s, m));
+      if (m.type === "audio") useAudio.setState({ sample: m });
+      else if (m.type !== "robot") useLive.setState((s) => reduce(s, m));
     },
-    onConnection: (c) => useLive.setState((s) => onConnection(s, c)),
+    onConnection: (c) => {
+      if (c !== "open") useAudio.setState({ sample: null });
+      useLive.setState((s) => onConnection(s, c));
+    },
   });
 }

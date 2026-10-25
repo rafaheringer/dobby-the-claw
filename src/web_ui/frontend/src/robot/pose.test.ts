@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampTarget, idleOffset, LIMITS, poseMatrix, ZERO_TARGET } from "./pose";
+import { clampTarget, HEAD_TURN_MAX, idleOffset, LIMITS, poseMatrix, ZERO_TARGET } from "./pose";
 
 describe("poseMatrix", () => {
   it("is the identity at rest", () => {
@@ -26,9 +26,14 @@ describe("clampTarget", () => {
   it("keeps every field inside LIMITS", () => {
     const t = clampTarget({ x: 1, y: -1, z: 1, roll: 9, pitch: -9, yaw: 9, antennas: [9, -9], yawBody: -9 });
     expect(t).toEqual({
-      x: LIMITS.x[1], y: LIMITS.y[0], z: LIMITS.z[1], roll: LIMITS.roll[1], pitch: LIMITS.pitch[0], yaw: LIMITS.yaw[1],
+      x: LIMITS.x[1], y: LIMITS.y[0], z: LIMITS.z[1], roll: LIMITS.roll[1], pitch: LIMITS.pitch[0], yaw: LIMITS.yawBody[0] + HEAD_TURN_MAX,
       antennas: [LIMITS.antenna[1], LIMITS.antenna[0]], yawBody: LIMITS.yawBody[0],
     });
+  });
+
+  it("keeps the head within its turn range of the body", () => {
+    expect(clampTarget({ ...ZERO_TARGET, yaw: 0, yawBody: 2 }).yaw).toBeCloseTo(2 - HEAD_TURN_MAX);
+    expect(clampTarget({ ...ZERO_TARGET, yaw: 2.2, yawBody: 1.4 }).yaw).toBeCloseTo(2.2);
   });
 });
 

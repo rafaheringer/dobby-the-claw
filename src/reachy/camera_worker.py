@@ -179,6 +179,7 @@ class CameraWorker:
         # Initializing it in __init__ (before the camera loop starts) can corrupt
         # the video GStreamer pipeline. We defer until first use.
         self._audio_doa: Optional[object] = None
+        self._doa_latest: Optional[tuple[float, float, bool]] = None  # (time, angle, speech)
         self._audio_doa_enabled = audio_doa_enabled
         self._audio_doa_init_attempted = False
         self._doa_target_yaw_rad: float | None = None
@@ -322,8 +323,18 @@ class CameraWorker:
                 logger.debug("DOA read failed: %s", exc)
                 self._stop_event.wait(1.0)
                 continue
-            if reading is not None and reading[1]:
+            if reading is None:
+                continue
+            self._doa_latest = (time.monotonic(), float(reading[0]), bool(reading[1]))
+            if reading[1]:
                 self._doa_speech.append((time.time(), float(reading[0])))
+
+    def latest_doa(self, max_age_s: float = 1.0) -> Optional[tuple[float, bool]]:
+        """The newest direction-of-arrival reading (angle in radians, speech heard), if recent."""
+        latest = self._doa_latest
+        if latest is None or time.monotonic() - latest[0] > max_age_s:
+            return None
+        return latest[1], latest[2]
 
     def _recent_speech_angle(self, window_s: float = 4.0) -> Optional[float]:
         """Median arrival angle of the speech heard in the last `window_s` seconds, or None."""

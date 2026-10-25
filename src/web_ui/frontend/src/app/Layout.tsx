@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from "motion/react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 import Home from "../routes/Home";
 import Twin from "../routes/Twin";
 // three.js is most of the bundle: load the 3D stage in its own chunk, after the page is up.
 const TwinStage = lazy(() => import("../twin/TwinStage").then((m) => ({ default: m.TwinStage })));
 import { Toasts } from "../ui/Toasts";
+import { useCurrentPath } from "./currentPath";
 import { useMotionPreset } from "./motion";
 import { sectionIndex } from "./routes";
 import { Sidebar } from "./Sidebar";
@@ -34,6 +35,13 @@ export default function Layout() {
   // Same element for "/" and "/twin", so home is not remounted (camera restarted) when the twin opens.
   const page = pageKey === "/" ? <Home /> : outlet;
   const dir = useDirection(sectionIndex(pageKey));
+  // A new page starts at the top, before it paints (it would otherwise slide in at the old page's
+  // scroll, and the browser would jump once the old page is gone). Not for the twin, which opens
+  // over the home page and returns to it as it was.
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [pageKey]);
+  useLayoutEffect(() => useCurrentPath.setState(pathname, true), [pathname]);
   const shift = reduced ? 0 : 24 * dir;
 
   return (
@@ -60,7 +68,9 @@ export default function Layout() {
             <WakeToggle compact />
           </div>
         </header>
-        <main className="relative max-w-[1280px] flex-1 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-4 lg:px-8 lg:pb-8 lg:pt-7">
+        {/* overflow-x clip: the sliding pages must not widen the page (sideways scroll mid-transition);
+            clip, not hidden, so nothing inside becomes a scroll container */}
+        <main className="relative max-w-[1280px] flex-1 overflow-x-clip px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-4 lg:px-8 lg:pb-8 lg:pt-7">
           <AnimatePresence mode="popLayout" initial={false} custom={shift}>
             <motion.div
               key={pageKey}

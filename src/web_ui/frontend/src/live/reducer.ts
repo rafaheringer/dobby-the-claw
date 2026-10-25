@@ -1,4 +1,4 @@
-import type { ChatEntry, LogLine, ServerMessage, Status } from "./protocol";
+import type { ChatEntry, LogLine, ServerMessage, Status, Volumes } from "./protocol";
 
 export const MAX_LOGS = 4000;
 export const MAX_CHAT = 500;
@@ -14,6 +14,7 @@ export interface WakeTry {
 export interface LiveState {
   connection: "connecting" | "open" | "closed";
   status: Status | null;
+  volumes: Volumes;
   categories: string[];
   logs: LogLine[];
   chat: ChatEntry[];
@@ -24,6 +25,7 @@ export interface LiveState {
 export const initialLive: LiveState = {
   connection: "connecting",
   status: null,
+  volumes: { speaker: null, mic: null },
   categories: [],
   logs: [],
   chat: [],
@@ -43,7 +45,7 @@ const tail = <T,>(items: T[], max: number): T[] => (items.length > max ? items.s
 export function reduce(s: LiveState, m: ServerMessage, now: number = Date.now() / 1000): LiveState {
   switch (m.type) {
     case "hello":
-      return { ...s, categories: m.categories, logs: tail(m.logs, MAX_LOGS), chat: tail(m.chat, MAX_CHAT), status: m.status };
+      return { ...s, categories: m.categories, logs: tail(m.logs, MAX_LOGS), chat: tail(m.chat, MAX_CHAT), status: m.status, volumes: m.volumes ?? s.volumes };
     case "status": {
       const { type: _type, ...status } = m;
       return { ...s, status };
@@ -61,7 +63,10 @@ export function reduce(s: LiveState, m: ServerMessage, now: number = Date.now() 
       const entry = { text: m.text, hit: m.hit, silent: m.silent, t: now };
       return { ...s, wakeTest: { ...s.wakeTest, recording: false, thinking: false, tries: [entry, ...s.wakeTest.tries].slice(0, MAX_TRIES) } };
     }
+    case "volumes":
+      return { ...s, volumes: { speaker: m.speaker, mic: m.mic } };
     case "robot":
+    case "audio": // 10 a second: kept in its own store (store.ts) so it only re-renders the meters
       return s; // 15 a second: routed straight to the robot link (store.ts), never through React state
     case "error": {
       // The server answers a refused wake test (detector off, test already running) with an error.

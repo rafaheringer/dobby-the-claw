@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { robotLink } from "../robot";
 import { CAMERA_FOV, fitDistance } from "./framing";
 import { GLTFRobot, type RobotBoxes } from "./GLTFRobot";
+import { FRONT, orbitOffset, useOrbit, type Orbit } from "./orbit";
 import { useStageStatus, useTwinPanel } from "./stageStatus";
 
 // Room left for the controls in full mode: a bottom sheet on phones, a side panel on desktop.
@@ -15,11 +16,22 @@ const DESKTOP_MIN_PX = 1024;
 
 const _center = new THREE.Vector3();
 const _size = new THREE.Vector3();
-const _wantPos = new THREE.Vector3();
+const BASE_ELEVATION = Math.atan2(0.05, 1); // the default view is slightly above the robot
 
-/** Eases the camera toward the framing of the current mode (head close-up or whole robot). */
+let snapUntil = 0;
+/** Jump the camera straight to its framing for the next `ms` (while the stage is faded out). */
+export function snapCamera(ms: number): void {
+  snapUntil = performance.now() + ms;
+}
+
+/**
+ * Eases the camera toward the framing of the current mode (head close-up or whole robot), turned
+ * by the person's orbit in full mode (the head close-up always faces front).
+ */
 function CameraRig({ boxes, full, snap }: { boxes: RobotBoxes | null; full: boolean; snap: boolean }) {
   const lookAt = useRef(new THREE.Vector3(0, 0.15, 0));
+  const distance = useRef<number | null>(null);
+  const orbit = useRef<Orbit>({ ...FRONT });
   const { size } = useThree();
   useFrame(({ camera }, delta) => {
     if (!boxes) return;
@@ -41,11 +53,21 @@ function CameraRig({ boxes, full, snap }: { boxes: RobotBoxes | null; full: bool
       height -= panel + PHONE_TOP_BAR_PX;
     } else cam.clearViewOffset();
     const visibleFov = (2 * Math.atan(Math.tan((CAMERA_FOV * Math.PI) / 360) * (height / size.height)) * 180) / Math.PI;
-    const distance = fitDistance({ width: Math.max(_size.x, _size.z), height: _size.y }, visibleFov, width / height, full ? 1.2 : 1.4);
-    _wantPos.set(_center.x, _center.y + distance * 0.05, _center.z + distance);
-    const k = snap ? 1 : 1 - Math.exp(-6 * Math.min(delta, 0.05));
-    cam.position.lerp(_wantPos, k);
+    const fit = fitDistance({ width: Math.max(_size.x, _size.z), height: _size.y }, visibleFov, width / height, full ? 1.2 : 1.4);
+    const dt = Math.min(delta, 0.05);
+    const jump = snap || performance.now() < snapUntil;
+    const k = jump ? 1 : 1 - Math.exp(-6 * dt);
+    const kOrbit = jump ? 1 : 1 - Math.exp(-14 * dt); // follows the finger closely, with a little glide
+    distance.current = distance.current === null ? fit : distance.current + (fit - distance.current) * k;
     lookAt.current.lerp(_center, k);
+    // Angles are eased, not the position: a fast drag goes around the robot instead of cutting through it.
+    const goal = full ? useOrbit.getState() : FRONT;
+    const o = orbit.current;
+    o.az += (goal.az - o.az) * kOrbit;
+    o.el += (goal.el - o.el) * kOrbit;
+    o.zoom += (goal.zoom - o.zoom) * kOrbit;
+    const [ox, oy, oz] = orbitOffset(o, distance.current, BASE_ELEVATION);
+    cam.position.set(lookAt.current.x + ox, lookAt.current.y + oy, lookAt.current.z + oz);
     cam.lookAt(lookAt.current);
   });
   return null;

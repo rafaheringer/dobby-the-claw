@@ -2,10 +2,25 @@ import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useLive } from "../live/store";
 import { matchLog, parseLogParams, toLogParams, type LogFilter } from "../lib/logFilter";
+import { copyText } from "../logs/format";
 import { LogList } from "../logs/LogList";
 import { LogToolbar } from "../logs/LogToolbar";
 import { Card } from "../ui/Surface";
 import { PageTitle } from "../ui/PageTitle";
+
+async function copy(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // No clipboard API (older browsers, some webviews): the old way.
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+}
 
 export default function Logs() {
   const [params, setParams] = useSearchParams();
@@ -23,7 +38,7 @@ export default function Logs() {
   }, [source, filter, clearedAt]);
 
   return (
-    <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-10rem)] flex-col lg:h-[calc(100dvh-3.75rem)]">
+    <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-9.75rem)] flex-col lg:h-[calc(100dvh-3.75rem)]">
       <PageTitle>Logs</PageTitle>
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <LogToolbar
@@ -33,6 +48,7 @@ export default function Logs() {
           onFilter={setFilter}
           onPause={() => setFrozen(frozen ? null : logs)}
           onClear={() => setClearedAt(logs.at(-1)?.id ?? 0)}
+          onCopy={() => copy(copyText(shown))}
         />
         <LogList lines={shown} />
       </Card>

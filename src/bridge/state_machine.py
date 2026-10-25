@@ -55,6 +55,8 @@ class StateMachine:
         if self.state == State.IDLE:
             if event == Event.WAKE_WORD:
                 self.state = State.LISTENING
+            elif event == Event.STT_RECEIVED:  # a typed turn: nothing to listen to first
+                self.state = State.THINKING
         elif self.state == State.LISTENING:
             if event == Event.STT_RECEIVED:
                 self.state = State.THINKING
@@ -73,7 +75,9 @@ class StateMachine:
             elif event == Event.MODEL_ERROR:
                 self.state = State.ERROR
         elif self.state == State.EXECUTING:
-            if event == Event.DELEGATION_STARTED:
+            if event == Event.WAKE_WORD:  # spoken to while still answering
+                self.state = State.LISTENING
+            elif event == Event.DELEGATION_STARTED:
                 self.state = State.DELEGATING
             elif event == Event.NEED_CONFIRMATION:
                 self.state = State.CONFIRMING

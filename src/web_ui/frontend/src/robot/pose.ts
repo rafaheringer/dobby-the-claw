@@ -2,13 +2,18 @@ import type { RobotTarget } from "./types";
 
 export const ZERO_TARGET: RobotTarget = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0, antennas: [0, 0], yawBody: 0 };
 
+/** How far the head can turn away from the body (the SDK's mechanical limit is 65 degrees). */
+export const HEAD_TURN_MAX = 1.1;
+
+// Same ranges as the bridge (src/reachy/manual.py). The head's yaw is relative to the fixed base,
+// like the SDK's head pose, so it reaches past HEAD_TURN_MAX when the body turns with it.
 export const LIMITS = {
   x: [-0.02, 0.02],
   y: [-0.02, 0.02],
   z: [-0.04, 0.025],
   roll: [-0.5, 0.5],
   pitch: [-0.6, 0.6],
-  yaw: [-1.1, 1.1],
+  yaw: [-2.6, 2.6],
   antenna: [-2.5, 2.5],
   yawBody: [-2.8, 2.8],
 } as const;
@@ -16,15 +21,18 @@ export const LIMITS = {
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));
 
 export function clampTarget(t: RobotTarget): RobotTarget {
+  const yawBody = clamp(t.yawBody, LIMITS.yawBody);
+  // Past its turn range the head follows the body.
+  const yaw = clamp(clamp(t.yaw, [yawBody - HEAD_TURN_MAX, yawBody + HEAD_TURN_MAX]), LIMITS.yaw);
   return {
     x: clamp(t.x, LIMITS.x),
     y: clamp(t.y, LIMITS.y),
     z: clamp(t.z, LIMITS.z),
     roll: clamp(t.roll, LIMITS.roll),
     pitch: clamp(t.pitch, LIMITS.pitch),
-    yaw: clamp(t.yaw, LIMITS.yaw),
+    yaw,
     antennas: [clamp(t.antennas[0], LIMITS.antenna), clamp(t.antennas[1], LIMITS.antenna)],
-    yawBody: clamp(t.yawBody, LIMITS.yawBody),
+    yawBody,
   };
 }
 

@@ -24,9 +24,6 @@ export function TwinSlot({ className }: { className?: string }) {
       ref={registerSlot}
       className={cx("relative", className)}
     >
-      {/* faint crosshair behind the head, like a viewfinder */}
-      <div className="pointer-events-none absolute inset-x-6 top-1/2 h-px bg-line" />
-      <div className="pointer-events-none absolute inset-y-6 left-1/2 w-px bg-line" />
       <AnimatePresence>
         {(!ready || failed) && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 grid place-items-center">

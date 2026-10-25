@@ -7,6 +7,9 @@ import { useLive } from "../live/store";
 import { loadPref, savePref } from "../lib/storage";
 import { usePageVisible } from "../lib/usePageVisible";
 import { streamWidth, videoUrl } from "../lib/video";
+import { robotLink } from "../robot";
+import { steer } from "../robot/camera";
+import { Joystick } from "../twin/controls/Joystick";
 import { Card, CardHeader, cx } from "../ui/Surface";
 import { Menu } from "../ui/Menu";
 
@@ -32,6 +35,64 @@ function useStreamWidth(ref: React.RefObject<HTMLElement | null>): number {
     };
   }, [ref]);
   return width;
+}
+
+const CAMERA_HOLD_MS = 30_000; // after this long without touching the joystick, Dobby takes the head back
+const DEAD_ZONE = 0.06;
+
+/**
+ * Steers the camera like a security camera: while the stick is pushed the camera turns that way,
+ * faster the further it is pushed; let go and the stick springs back and the camera stops. The
+ * first push puts the robot in manual mode (it stops moving on its own); 30 s after the last touch,
+ * or on leaving the page, Dobby gets the head back.
+ */
+function CameraStick() {
+  const [stick, setStick] = useState({ x: 0, y: 0 });
+  const push = useRef(stick);
+  const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const handBack = () => {
+    clearTimeout(hold.current);
+    if (hold.current !== undefined && robotLink.state().mode === "manual") robotLink.setManual(false);
+    hold.current = undefined;
+  };
+  useEffect(() => handBack, []);
+
+  const pushed = Math.hypot(stick.x, stick.y) > DEAD_ZONE;
+  useEffect(() => {
+    if (!pushed) return;
+    let frame = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const t = robotLink.target();
+      robotLink.setTarget(steer(t, push.current.x, push.current.y, dt));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [pushed]);
+
+  const move = (x: number, y: number) => {
+    push.current = { x, y };
+    setStick(push.current);
+    clearTimeout(hold.current);
+    hold.current = setTimeout(handBack, CAMERA_HOLD_MS);
+  };
+  return (
+    <div className="absolute bottom-3 right-3">
+      <Joystick
+        label="Mover a câmera"
+        size="sm"
+        showLabel={false}
+        className="bg-white/60 backdrop-blur-sm"
+        x={stick.x}
+        y={stick.y}
+        onChange={move}
+        onRelease={() => move(0, 0)}
+      />
+    </div>
+  );
 }
 
 /** The live camera with detection overlays; the stream only runs while someone can see it. */
@@ -65,6 +126,7 @@ export function CameraCard({ className }: { className?: string }) {
 
   const message = !status ? "" : !camera ? "Sem câmera" : !enabled ? "Câmera desligada" : "Aguardando imagem…";
   const showImage = !!src && live;
+  const steerable = showImage && !status?.sleeping;
 
   return (
     <Card className={cx("relative overflow-hidden", className)}>
@@ -119,6 +181,7 @@ export function CameraCard({ className }: { className?: string }) {
             </motion.div>
           )}
         </AnimatePresence>
+        {steerable && <CameraStick />}
       </div>
     </Card>
   );

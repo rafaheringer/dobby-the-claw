@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import glbUrl from "../assets/robot/reachy_mini_viz.glb?url";
 import type { RobotPose } from "../robot/types";
-import { applyHeadOnly, norm } from "./headOnly";
+import { applyHeadOnly, neckParts, norm } from "./headOnly";
 
 // Draco-compressed glb; the decoder is served by us (the CSP allows no CDN).
 const DRACO_PATH = "/draco/";
@@ -173,7 +173,12 @@ export function GLTFRobot({ getPose, headOnly, onBoxes }: Props) {
     const head = rig.current.bones.head;
     if (!wrapper.current || !head || !onBoxes) return;
     wrapper.current.updateWorldMatrix(true, true);
-    const headBox = new THREE.Box3().setFromObject(head, true);
+    // The head as the home page shows it: without the neck parts under the shell.
+    const neck = neckParts(head);
+    const headBox = new THREE.Box3();
+    head.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh && !neck.has(o)) headBox.union(new THREE.Box3().setFromObject(o, true));
+    });
     // The antenna rods are skinned (their bounds span the whole rig), so frame their tip bones instead.
     model.traverse((o) => {
       if (["antennal003", "antennar003"].includes(norm(o.name))) headBox.expandByPoint(o.getWorldPosition(new THREE.Vector3()));
