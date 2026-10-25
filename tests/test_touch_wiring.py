@@ -40,6 +40,8 @@ def _orch(events, sleeping=False):
     o._touch_gate = TouchSpeechGate()
     o._touch_deaf_until = 0.0
     o._touch_quiet_until = 0.0
+    o._touch_agc_gain = 2.0
+    o.camera_worker = None
     o.robot_actions = _Actions()
     o.realtime = None if sleeping else _Realtime()
     o.sleeping = sleeping
@@ -106,7 +108,22 @@ def test_presence_notice_absorbed_while_touch_quiet():
     o = _orch([])
     o._presence = _Presence()
     o._last_presence_poll = 0.0
-    o.camera_worker = SimpleNamespace(get_presence=lambda: [], get_pets=lambda: [])
+    o.camera_worker = SimpleNamespace(get_presence=list, get_pets=list)
     o._touch_quiet_until = 100.0
     o._maybe_send_presence_notice(50.0)
     assert o.realtime.sent == [] and len(o._presence.committed) == 1
+
+
+def test_touch_end_restores_mic_gain():
+    calls = []
+    o = _orch([TouchEvent(TouchKind.PET_START, 1.0)])
+    o.camera_worker = SimpleNamespace(restore_mic_gain=calls.append)
+    o._observe_touch(SimpleNamespace(), 1.0)
+    assert calls == []
+    o._touch.events = [TouchEvent(TouchKind.PET_END, 9.0, 8.0)]
+    o._touch_deaf_until = 0.0
+    o._observe_touch(SimpleNamespace(), 9.0)
+    o._touch.events = [TouchEvent(TouchKind.TAP, 30.0)]
+    o._touch_deaf_until = 0.0
+    o._observe_touch(SimpleNamespace(), 30.0)
+    assert calls == [2.0, 2.0]

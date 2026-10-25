@@ -146,6 +146,7 @@ class RuntimeOrchestrator:
         self._touch_gate = TouchSpeechGate(cooldown_s=config.touch_speak_cooldown_s)
         self._touch_deaf_until = 0.0
         self._touch_quiet_until = 0.0  # presence notices are absorbed until then
+        self._touch_agc_gain = config.touch_agc_restore_gain
         if config.touch_enabled:
             self._touch = TouchDetector(pet_dbfs=config.touch_pet_dbfs, tap_peak=config.touch_tap_peak)
 
@@ -384,6 +385,12 @@ class RuntimeOrchestrator:
             else:
                 self._touch_quiet_until = now + _TOUCH_PRESENCE_QUIET_S
             sound_s = self.robot_actions.react_touch(kind, phase, asleep=self.sleeping)
+            if (
+                event.kind is not TouchKind.PET_START
+                and self._touch_agc_gain > 0
+                and self.camera_worker is not None
+            ):
+                self.camera_worker.restore_mic_gain(self._touch_agc_gain)
             if sound_s > 0:
                 self._touch_deaf_until = now + sound_s + 0.3
             if self.sleeping:

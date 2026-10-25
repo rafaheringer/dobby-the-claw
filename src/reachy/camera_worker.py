@@ -268,6 +268,26 @@ class CameraWorker:
             if reading is not None and reading[1]:
                 self._doa_speech.append((time.time(), float(reading[0])))
 
+    def restore_mic_gain(self, gain: float) -> Optional[threading.Thread]:
+        """Set the mic array AGC gain in the background (petting saturates the array and the AGC
+        drops its gain to near zero, then barely recovers in silence). None without a mic array."""
+        doa = self._audio_doa
+        respeaker = getattr(doa, "respeaker", None)
+        if respeaker is None:
+            return None
+
+        def _write() -> None:
+            try:
+                with self._doa_lock:
+                    respeaker.write("PP_AGCGAIN", [float(gain)])
+                logger.info("Mic AGC gain restored to %.1f", gain)
+            except Exception as exc:
+                logger.warning("Mic AGC gain restore failed: %s", exc)
+
+        thread = threading.Thread(target=_write, name="mic-gain-restore", daemon=True)
+        thread.start()
+        return thread
+
     def _recent_speech_angle(self, window_s: float = 4.0) -> Optional[float]:
         """Median arrival angle of the speech heard in the last `window_s` seconds, or None."""
         cutoff = time.time() - window_s
