@@ -14,7 +14,7 @@ import { Button } from "../ui/Button";
 import { cx } from "../ui/Surface";
 import { Pill } from "../ui/Pill";
 import { HeadIllustration } from "../twin/HeadIllustration";
-import { useStageStatus } from "../twin/stageStatus";
+import { useStageStatus, useTwinPanel } from "../twin/stageStatus";
 
 const SWIPE_CLOSE_PX = 120;
 
@@ -51,6 +51,18 @@ function ModeSwitch() {
       ))}
     </div>
   );
+}
+
+// Module-level so the ref callback is stable. Tells the 3D framing how much of a phone screen the
+// controls take (on desktop the panel is a side column and this value is not used).
+function measurePanel(el: HTMLElement | null) {
+  if (!el) return;
+  const observer = new ResizeObserver(() => useTwinPanel.setState({ phonePx: el.offsetHeight }));
+  observer.observe(el);
+  return () => {
+    observer.disconnect();
+    useTwinPanel.setState({ phonePx: 0 });
+  };
 }
 
 /** The full digital twin: the 3D stage fills the screen (TwinStage) and these controls sit over it. */
@@ -118,13 +130,16 @@ export default function Twin() {
         animate="shown"
         exit="exit"
         aria-label="Controles"
+        ref={measurePanel}
+        // Every control fits at once: the panel takes its content's height (never scrolls) and the
+        // 3D view gets the rest of the screen above it.
         className={cx(
-          "pointer-events-auto mt-auto overflow-y-auto overscroll-contain border-t border-ink bg-surface p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]",
-          "h-[44dvh] lg:absolute lg:bottom-0 lg:right-0 lg:top-0 lg:mt-0 lg:h-auto lg:w-[368px] lg:border-l lg:border-t-0 lg:px-5 lg:py-7",
+          "pointer-events-auto mt-auto overflow-hidden border-t border-ink bg-surface px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4",
+          "lg:absolute lg:bottom-0 lg:right-0 lg:top-0 lg:mt-0 lg:w-[368px] lg:border-l lg:border-t-0 lg:px-5 lg:py-7",
         )}
       >
-        <div className="mx-auto flex max-w-md flex-col gap-4">
-          <motion.div variants={item} className="flex items-center justify-center gap-6">
+        <div className="mx-auto flex max-w-md flex-col gap-3 lg:gap-6">
+          <motion.div variants={item} className="flex items-end justify-between">
             <Joystick
               label="Cabeça"
               x={-target.yaw / LIMITS.yaw[1]}
@@ -132,20 +147,20 @@ export default function Twin() {
               onChange={(x, y) => set({ yaw: -x * LIMITS.yaw[1], pitch: y * LIMITS.pitch[1] })}
             />
             <LinearSlider vertical label="Altura" value={target.z} min={LIMITS.z[0]} max={LIMITS.z[1]} onChange={(z) => set({ z })} />
+            <CircularSlider label="Corpo" value={target.yawBody} min={LIMITS.yawBody[0]} max={LIMITS.yawBody[1]} onChange={(yawBody) => set({ yawBody })} />
           </motion.div>
           <motion.div variants={item}>
             <LinearSlider label="Inclinar" value={-target.roll} min={LIMITS.roll[0]} max={LIMITS.roll[1]} onChange={(v) => set({ roll: -v })} />
           </motion.div>
-          <motion.div variants={item} className="flex justify-around">
+          <motion.div variants={item} className="flex items-center justify-between gap-3">
             <CircularSlider label="Antena esq." value={target.antennas[1]} min={LIMITS.antenna[0]} max={LIMITS.antenna[1]} onChange={(v) => set({ antennas: [target.antennas[0], v] })} />
             <CircularSlider label="Antena dir." value={target.antennas[0]} min={LIMITS.antenna[0]} max={LIMITS.antenna[1]} onChange={(v) => set({ antennas: [v, target.antennas[1]] })} />
-            <CircularSlider label="Corpo" value={target.yawBody} min={LIMITS.yawBody[0]} max={LIMITS.yawBody[1]} onChange={(yawBody) => set({ yawBody })} />
-          </motion.div>
-          <motion.div variants={item} className="flex gap-2">
-            <Button className="flex-1" onClick={() => robotLink.center()}>
-              <Crosshair className="size-4" /> Centralizar
-            </Button>
-            <EmotionMenu />
+            <div className="flex w-32 flex-col gap-2">
+              <Button size="sm" className="w-full" onClick={() => robotLink.center()}>
+                <Crosshair className="size-4" /> Centralizar
+              </Button>
+              <EmotionMenu />
+            </div>
           </motion.div>
         </div>
       </motion.section>

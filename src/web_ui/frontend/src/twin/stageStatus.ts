@@ -12,3 +12,6 @@ export function hasWebGL(): boolean {
     return false;
   }
 }
+
+/** Height of the twin's controls panel on phones (0: not measured yet), read by the 3D framing. */
+export const useTwinPanel = create<{ phonePx: number }>(() => ({ phonePx: 0 }));

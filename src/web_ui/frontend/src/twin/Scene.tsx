@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { robotLink } from "../robot";
 import { CAMERA_FOV, fitDistance } from "./framing";
 import { GLTFRobot, type RobotBoxes } from "./GLTFRobot";
-import { useStageStatus } from "./stageStatus";
+import { useStageStatus, useTwinPanel } from "./stageStatus";
 
 // Room left for the controls in full mode: a bottom sheet on phones, a side panel on desktop.
 export const PHONE_PANEL_FRACTION = 0.44;
@@ -36,7 +36,7 @@ function CameraRig({ boxes, full, snap }: { boxes: RobotBoxes | null; full: bool
       width -= DESKTOP_PANEL_PX;
     } else if (full) {
       // Visible band: between the top bar (Voltar, mode) and the controls panel at the bottom.
-      const panel = height * PHONE_PANEL_FRACTION;
+      const panel = useTwinPanel.getState().phonePx || height * PHONE_PANEL_FRACTION;
       cam.setViewOffset(width, height, 0, (panel - PHONE_TOP_BAR_PX) / 2, width, height);
       height -= panel + PHONE_TOP_BAR_PX;
     } else cam.clearViewOffset();

@@ -188,7 +188,7 @@ export function GLTFRobot({ getPose, headOnly, onBoxes }: Props) {
 
   useEffect(() => applyHeadOnly(model, headOnly), [model, headOnly]);
 
-  const tmp = useRef({ p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3(), worldQ: new THREE.Quaternion(), worldP: new THREE.Vector3(), mat: new THREE.Matrix4() }).current;
+  const tmp = useRef({ p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3(), worldQ: new THREE.Quaternion(), worldP: new THREE.Vector3(), mat: new THREE.Matrix4(), parentInv: new THREE.Matrix4() }).current;
   const sm = useRef({ init: false, smP: new THREE.Vector3(), smQ: new THREE.Quaternion(), tgtP: new THREE.Vector3(), tgtQ: new THREE.Quaternion(), smYaw: 0, smAnt: [0, 0] as [number, number] }).current;
 
   useFrame((_, delta) => {
@@ -214,7 +214,14 @@ export function GLTFRobot({ getPose, headOnly, onBoxes }: Props) {
       tmp.worldQ.copy(tmp.q).multiply(hr.q);
       tmp.worldP.copy(hr.p).addScaledVector(tmp.p, UNITS_PER_M);
       tmp.worldP.z = Math.min(hr.p.z + HEAD_Z_MAX, Math.max(hr.p.z + HEAD_Z_MIN, tmp.worldP.z));
-      tmp.mat.compose(tmp.worldP, tmp.worldQ, hr.s).premultiply(hr.parentInv);
+      // The SDK's head pose is relative to the fixed base, not to the turning body: the head's parent
+      // (under the body bone) has just been rotated, so place the head against where that parent is now.
+      const parent = bones.head.parent;
+      if (parent) {
+        parent.updateWorldMatrix(true, false);
+        tmp.parentInv.copy(model.matrixWorld).invert().multiply(parent.matrixWorld).invert();
+      } else tmp.parentInv.copy(hr.parentInv);
+      tmp.mat.compose(tmp.worldP, tmp.worldQ, hr.s).premultiply(tmp.parentInv);
       tmp.mat.decompose(bones.head.position, bones.head.quaternion, bones.head.scale);
     }
 

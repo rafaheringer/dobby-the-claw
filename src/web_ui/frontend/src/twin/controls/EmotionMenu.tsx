@@ -15,7 +15,7 @@ export function EmotionMenu() {
     <Menu
       align="end"
       trigger={
-        <Button className="flex-1">
+        <Button size="sm" className="w-full">
           <Sparkles className="size-4" /> Emoções
         </Button>
       }

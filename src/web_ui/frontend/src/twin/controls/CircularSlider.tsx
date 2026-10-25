@@ -73,7 +73,7 @@ export function CircularSlider({ label, value, min, max, onChange }: Props) {
           {Math.round((value * 180) / Math.PI)}°
         </text>
       </svg>
-      <span className="label">{label}</span>
+      <span className="label whitespace-nowrap">{label}</span>
     </div>
   );
 }
