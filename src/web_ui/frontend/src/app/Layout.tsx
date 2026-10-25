@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 import Home from "../routes/Home";
+import { TwinStage } from "../twin/TwinStage";
 import { Toasts } from "../ui/Toasts";
 import { useMotionPreset } from "./motion";
 import { sectionIndex } from "./routes";
@@ -68,6 +69,7 @@ export default function Layout() {
           </AnimatePresence>
         </motion.main>
       </div>
+      <TwinStage />
       {!twin && <TabBar />}
       <AnimatePresence>{twin && outlet}</AnimatePresence>
       <Toasts />
