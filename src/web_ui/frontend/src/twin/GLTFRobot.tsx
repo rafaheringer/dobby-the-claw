@@ -173,7 +173,13 @@ export function GLTFRobot({ getPose, headOnly, onBoxes }: Props) {
     const head = rig.current.bones.head;
     if (!wrapper.current || !head || !onBoxes) return;
     wrapper.current.updateWorldMatrix(true, true);
-    onBoxes({ full: new THREE.Box3().setFromObject(model, true), head: new THREE.Box3().setFromObject(head, true) });
+    const headBox = new THREE.Box3().setFromObject(head, true);
+    // The antenna rods are skinned (their bounds span the whole rig), so frame their tip bones instead.
+    model.traverse((o) => {
+      if (["antennal003", "antennar003"].includes(norm(o.name))) headBox.expandByPoint(o.getWorldPosition(new THREE.Vector3()));
+    });
+    headBox.max.y += (headBox.max.y - headBox.min.y) * 0.3; // the rods reach past their last bone
+    onBoxes({ full: new THREE.Box3().setFromObject(model, true), head: headBox });
   }, [model, onBoxes]);
 
   useEffect(() => applyHeadOnly(model, headOnly), [model, headOnly]);

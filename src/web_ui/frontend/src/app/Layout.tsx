@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 import Home from "../routes/Home";
-import { TwinStage } from "../twin/TwinStage";
+// three.js is most of the bundle: load the 3D stage in its own chunk, after the page is up.
+const TwinStage = lazy(() => import("../twin/TwinStage").then((m) => ({ default: m.TwinStage })));
 import { Toasts } from "../ui/Toasts";
 import { useMotionPreset } from "./motion";
 import { sectionIndex } from "./routes";
@@ -69,7 +70,9 @@ export default function Layout() {
           </AnimatePresence>
         </motion.main>
       </div>
-      <TwinStage />
+      <Suspense fallback={null}>
+        <TwinStage />
+      </Suspense>
       {!twin && <TabBar />}
       <AnimatePresence>{twin && outlet}</AnimatePresence>
       <Toasts />

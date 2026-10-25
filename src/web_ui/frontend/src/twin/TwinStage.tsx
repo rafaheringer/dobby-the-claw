@@ -24,6 +24,7 @@ class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 type Rect = { top: number; left: number; width: number; height: number };
+const SETTLE_MS = 700; // how long a mode change animates before the stage just follows the slot
 const viewport = (): Rect => ({ top: 0, left: 0, width: window.innerWidth, height: window.innerHeight });
 
 /** True while `el` is at least partly on screen. */
@@ -56,7 +57,7 @@ export function TwinStage() {
   const left = useMotionValue(0);
   const width = useMotionValue(0);
   const height = useMotionValue(0);
-  const settling = useRef(false);
+  const settleUntil = useRef(0);
   const placed = useRef(false);
 
   // Move to the new frame with the spring when the mode changes...
@@ -71,9 +72,8 @@ export function TwinStage() {
       placed.current = true;
       return;
     }
-    settling.current = true;
+    settleUntil.current = performance.now() + SETTLE_MS;
     const runs = [animate(top, target.top, spring), animate(left, target.left, spring), animate(width, target.width, spring), animate(height, target.height, spring)];
-    Promise.all(runs).then(() => (settling.current = false));
     return () => runs.forEach((r) => r.stop());
   }, [mode, slot, spring, reduced, top, left, width, height]);
 
@@ -83,7 +83,7 @@ export function TwinStage() {
     let frame = 0;
     const follow = () => {
       frame = requestAnimationFrame(follow);
-      if (settling.current) return;
+      if (performance.now() < settleUntil.current) return; // the spring is still moving it
       const r = mode === "full" ? viewport() : slot?.getBoundingClientRect();
       if (!r) return;
       top.jump(r.top);

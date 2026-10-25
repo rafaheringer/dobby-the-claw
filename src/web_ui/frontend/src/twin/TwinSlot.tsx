@@ -8,15 +8,20 @@ import { useStageStatus } from "./stageStatus";
 /** Where the home page wants the 3D head drawn; the stage measures this element. */
 export const useTwinSlot = create<{ el: HTMLElement | null }>(() => ({ el: null }));
 
+// Module-level so the ref callback is stable: a new one each render would re-register the slot
+// and restart the stage's animation every status tick.
+function registerSlot(el: HTMLDivElement | null) {
+  if (!el) return;
+  useTwinSlot.setState({ el });
+  return () => useTwinSlot.setState((s) => (s.el === el ? { el: null } : s));
+}
+
 export function TwinSlot({ className }: { className?: string }) {
   const { ready, failed } = useStageStatus();
   return (
     <div
       data-twin-slot
-      ref={(el) => {
-        useTwinSlot.setState({ el });
-        return () => useTwinSlot.setState((s) => (s.el === el ? { el: null } : s));
-      }}
+      ref={registerSlot}
       className={cx("relative", className)}
     >
       {/* soft halo behind the head */}
