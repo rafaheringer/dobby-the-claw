@@ -69,7 +69,7 @@ def test_tap_awake_startles_and_complains():
 
 
 def test_light_petting_is_petting_not_taps():
-    o, _ = _run("carinho_leve")
+    o, _ = _run("carinho_leve_g2")
     assert [c[0] for c in o.robot_actions.calls] == ["pet", "pet"]
 
 

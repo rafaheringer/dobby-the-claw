@@ -38,7 +38,7 @@ def test_petting_starts_fast_and_ends_once():
 
 
 def test_light_petting_detected_without_taps():
-    ev = run("carinho_leve")
+    ev = run("carinho_leve_g2")
     assert ev[0].kind is TouchKind.PET_START and ev[0].at <= 2.5
     assert TouchKind.TAP not in [e.kind for e in ev]
 
@@ -82,3 +82,22 @@ def test_muted_after_start_keeps_one_episode():
 def test_deaf_mid_episode_marks_pet_end_interrupted():
     ev = run("carinho", deaf_from=3.0)
     assert ev[1].interrupted
+
+
+def _kinds(events):
+    return [e.kind for e in events]
+
+
+def test_rapid_taps_at_full_gain_are_taps_not_petting():
+    # Bursts of ~5 taps/s: each tap is one or two loud windows with silence in between.
+    kinds = _kinds(run("batidinha_g2"))
+    assert TouchKind.PET_START not in kinds
+    assert TouchKind.TAP in kinds
+
+
+def test_petting_at_full_gain_is_one_episode_without_taps():
+    for name in ("carinho_g2", "carinho_leve_g2"):
+        kinds = _kinds(run(name))
+        assert TouchKind.TAP not in kinds, name
+        assert kinds[0] is TouchKind.PET_START, name
+        assert kinds.count(TouchKind.PET_START) == kinds.count(TouchKind.PET_END) >= 1, name

@@ -16,10 +16,14 @@ import numpy as np
 from bridge.runtime.wakeword import _to_mono
 
 _WINDOW_S = 0.1
-_PET_SPAN_S = 1.5  # loud windows needed within this span to start petting
+_PET_SPAN_S = 1.5  # loud windows are counted within this span
 _PET_MIN_WINDOWS = 3
+_PET_SUSTAIN_WINDOWS = 3  # this many consecutive loud windows: a rubbing hand, never a tap
+_PET_SETTLE_S = 1.0  # sparse loud windows are petting once they spread this long without a burst
+_TAP_BURST_WINDOWS = 5  # this many loud windows within the span, none sustained: tapping
 _PET_END_S = 2.0  # petting ends after this long without a loud window
-_TAP_HOLD_S = 1.0  # a tap waits this long for petting to show up before it is emitted
+_TAP_HOLD_S = 1.0  # taps are emitted after this long without a hit (petting may still show up)
+_TAP_AFTER_PET_S = 3.0  # stray hits right after petting are its tail, not taps
 
 
 class TouchKind(str, Enum):
@@ -58,9 +62,12 @@ class TouchDetector:
     def _reset(self) -> None:
         self._buffer = np.zeros(0, dtype=np.float32)
         self._loud: deque[float] = deque()
+        self._run = 0  # consecutive loud windows
         self._last_loud = float("-inf")
         self._pet_started_at: float | None = None
-        self._tap_at: float | None = None
+        self._pet_ended_at = float("-inf")
+        self._last_hit: float | None = None  # pending tap(s)
+        self._tapping = False
 
     def observe(
         self,
@@ -83,7 +90,8 @@ class TouchDetector:
             return events
         if muted:
             self._buffer = np.zeros(0, dtype=np.float32)
-            self._tap_at = None
+            self._last_hit = None
+            self._run = 0
             if self._pet_started_at is not None:
                 self._last_loud = now
             return []
@@ -99,33 +107,43 @@ class TouchDetector:
         return events
 
     def _window(self, window: np.ndarray, at: float) -> list[TouchEvent]:
+        # Petting: sustained loud windows, or sparse ones spreading over a second. Taps: one or two
+        # loud windows each with silence in between, ~5/s in a burst (or a lone hit).
         events: list[TouchEvent] = []
         loud = float(np.sqrt(np.mean(window**2))) > self._pet_rms
+        hit = loud or float(np.max(np.abs(window))) >= self._tap_peak
+        self._run = self._run + 1 if loud else 0
         if loud:
             self._last_loud = at
             self._loud.append(at)
         while self._loud and at - self._loud[0] > _PET_SPAN_S:
             self._loud.popleft()
 
-        if self._pet_started_at is None:
-            if len(self._loud) >= _PET_MIN_WINDOWS:
-                self._pet_started_at = self._loud[0]
-                self._tap_at = None
-                events.append(TouchEvent(TouchKind.PET_START, at))
-            elif not loud and float(np.max(np.abs(window))) >= self._tap_peak:
-                if self._tap_at is None and at - self._last_loud > _PET_SPAN_S:
-                    self._tap_at = at
-        elif at - self._last_loud >= _PET_END_S:
-            events.append(self._pet_end(at))
-            self._pet_started_at = None
-            self._loud.clear()
+        if self._pet_started_at is not None:
+            if at - self._last_loud >= _PET_END_S:
+                events.append(self._pet_end(at))
+                self._pet_started_at = None
+                self._pet_ended_at = at
+                self._loud.clear()
+            return events
 
-        if self._tap_at is not None:
-            if self._last_loud >= self._tap_at:
-                self._tap_at = None  # petting showed up: the transient was part of it
-            elif at - self._tap_at >= _TAP_HOLD_S:
-                events.append(TouchEvent(TouchKind.TAP, at))
-                self._tap_at = None
+        if hit and at - self._pet_ended_at >= _TAP_AFTER_PET_S:
+            self._last_hit = at
+        if len(self._loud) >= _TAP_BURST_WINDOWS:
+            self._tapping = True
+        settled = len(self._loud) >= _PET_MIN_WINDOWS and at - self._loud[0] >= _PET_SETTLE_S
+        if self._run >= _PET_SUSTAIN_WINDOWS or (settled and not self._tapping):
+            self._pet_started_at = self._loud[0]
+            self._last_hit = None
+            self._tapping = False
+            events.append(TouchEvent(TouchKind.PET_START, at))
+        elif self._last_hit is not None and at - self._last_hit >= _TAP_HOLD_S:
+            events.append(TouchEvent(TouchKind.TAP, at))
+            self._last_hit = None
+            self._tapping = False
+            self._loud.clear()
+        elif self._tapping and at - self._last_loud >= _TAP_HOLD_S:
+            self._tapping = False
         return events
 
     def _pet_end(self, at: float, interrupted: bool = False) -> TouchEvent:
