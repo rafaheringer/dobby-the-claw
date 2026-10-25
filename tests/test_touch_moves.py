@@ -8,17 +8,17 @@ from reachy.touch_moves import PetMove, TapMove
 
 def test_pet_move_reaches_pose_and_releases():
     m = PetMove()
-    _, ant, _ = m.evaluate(0.6)
-    assert ant[0] == pytest.approx(-0.9, abs=0.16) and ant[1] == pytest.approx(0.9, abs=0.16)
+    _, ant, _ = m.evaluate(1.0)  # antennas folded like the sleep pose
+    assert ant[0] == pytest.approx(-3.05, abs=0.16) and ant[1] == pytest.approx(3.05, abs=0.16)
     m.release(at=5.0)
-    assert m.duration == pytest.approx(5.8)
-    _, ant_end, _ = m.evaluate(5.8)
+    assert m.duration == pytest.approx(5.0 + PetMove.EASE_OUT_S)
+    _, ant_end, _ = m.evaluate(5.0 + PetMove.EASE_OUT_S)
     assert abs(ant_end[0]) < 0.05
 
 
 def test_pet_move_holds_until_released():
     m = PetMove(hold_s=30.0)
-    assert m.duration == pytest.approx(30.8)
+    assert m.duration == pytest.approx(30.0 + PetMove.EASE_OUT_S)
 
 
 def test_tap_move_is_short_and_returns_to_neutral():
@@ -45,3 +45,10 @@ def test_pet_move_released_before_start_ends_quickly():
     m = PetMove()
     m.release_now()
     assert m.duration == pytest.approx(PetMove.EASE_OUT_S)
+
+
+def test_pet_move_antennas_stay_within_joint_limits():
+    m = PetMove()
+    for t in np.arange(0, 20, 0.05):
+        _, ant, _ = m.evaluate(float(t))
+        assert np.all(np.abs(ant) <= 3.06)

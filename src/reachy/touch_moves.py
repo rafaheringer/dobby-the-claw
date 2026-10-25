@@ -21,9 +21,9 @@ def _smooth(x: float) -> float:
 class PetMove(Move):
     """Lean into the hand: antennas drop back, head tilts and lifts, antennas sway until released."""
 
-    EASE_IN_S = 0.6
-    EASE_OUT_S = 0.8
-    ANTENNAS = np.array([-0.9, 0.9])
+    EASE_IN_S = 1.0
+    EASE_OUT_S = 1.0
+    ANTENNAS = np.array([-3.05, 3.05])  # folded back, as in the SDK sleep pose
     SWAY_RAD = 0.15
     SWAY_HZ = 0.4
 
@@ -57,8 +57,10 @@ class PetMove(Move):
         if self._started_wall is None:
             self._started_wall = time.monotonic() - t
         f = self._amount(t)
-        sway = self.SWAY_RAD * np.sin(2 * np.pi * self.SWAY_HZ * max(0.0, t - self.EASE_IN_S))
-        antennas = f * (self.ANTENNAS + np.array([sway, -sway]))
+        # Sway only inward: the folded pose already sits next to the joint limit.
+        phase = 2 * np.pi * self.SWAY_HZ * max(0.0, t - self.EASE_IN_S)
+        sway = self.SWAY_RAD * (1 - np.cos(phase)) / 2
+        antennas = f * (self.ANTENNAS - np.sign(self.ANTENNAS) * sway)
         head = create_head_pose(z=6 * f, roll=10 * f, pitch=-5 * f, mm=True, degrees=True)
         return head, antennas.astype(np.float64), 0.0
 
