@@ -50,9 +50,12 @@ Pure, I/O-free, unit-testable.
   into 100 ms windows (keeps a remainder buffer across chunks).
 - Petting: `PET_START` when ≥3 windows above `TOUCH_PET_DBFS` (default −18) within 1.5 s;
   `PET_END(duration_s)` after 2 s without a loud window.
-- Tap: a window whose sample peak ≥ `TOUCH_TAP_PEAK` (default 0.6) while its RMS stays below the pet
-  threshold and the next window is quiet; 2–3 such hits within 1 s produce one `TAP`. If petting has
-  started, transients are absorbed into the petting episode (mutually exclusive).
+- Tap: a window whose sample peak ≥ `TOUCH_TAP_PEAK` (default 0.5) while its RMS stays below the pet
+  threshold. It is held for 1.0 s and emitted as one `TAP` only if no petting window occurred in the
+  1.5 s before it nor during the hold; further transients during the hold merge into the same `TAP`.
+  (In the probe only one of the 2–3 taps peaked above 0.6, and light petting produces isolated
+  transients right next to its loud windows — hence single-transient taps with an isolation rule.)
+  Petting and taps are mutually exclusive.
 - When `deaf` is true the detector drops windows and resets partial state (no events).
 
 ### Robot reactions — `RobotActionsPort`
@@ -83,7 +86,7 @@ Two new port methods, implemented in `ReachyRobotActions`:
 |---|---|---|
 | `TOUCH_ENABLED` | `1` | Petting/tap detection through the mic array |
 | `TOUCH_PET_DBFS` | `-18` | 100 ms RMS level counted as a petting window |
-| `TOUCH_TAP_PEAK` | `0.6` | Sample peak counted as a tap transient |
+| `TOUCH_TAP_PEAK` | `0.5` | Sample peak counted as a tap transient |
 | `TOUCH_SPEAK_COOLDOWN_S` | `300` | Minimum gap between spoken touch reactions of the same kind |
 
 ## Testing
