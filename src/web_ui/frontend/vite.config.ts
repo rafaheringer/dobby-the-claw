@@ -4,9 +4,10 @@ import { defineConfig } from "vitest/config";
 import { VitePWA } from "vite-plugin-pwa";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
-const BRIDGE = "127.0.0.1:18900";
-
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // `vite --mode mock` talks to dev/mock-bridge.mjs instead of the real bridge.
+  const BRIDGE = mode === "mock" ? "127.0.0.1:18901" : "127.0.0.1:18900";
+  return {
   plugins: [
     react(),
     tailwindcss(),
@@ -46,4 +47,5 @@ export default defineConfig({
     },
   },
   test: { environment: "node" },
+  };
 });

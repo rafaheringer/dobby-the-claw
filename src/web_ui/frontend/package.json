@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "vite --mode mock",
+    "mock": "node dev/mock-bridge.mjs",
     "build": "tsc --noEmit && vitest run && vite build",
     "test": "vitest",
     "lint": "eslint ."
@@ -30,6 +32,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.181.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -40,6 +43,7 @@
     "vite": "^7.2.2",
     "vite-plugin-pwa": "^1.1.0",
     "vite-plugin-static-copy": "^3.1.4",
-    "vitest": "^4.0.8"
+    "vitest": "^4.0.8",
+    "ws": "^8.18.3"
   }
 }
