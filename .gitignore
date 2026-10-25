@@ -209,9 +209,8 @@ __marimo__/
 #Dobby stuff
 .dobby/
 
-# Downloaded models (speaker embedding, person detection)
-models/speaker/
-models/vision/
+# Downloaded models (speaker embedding, person detection, model caches)
+models/
 
 # Visual brainstorming companion
 .superpowers/
